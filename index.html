@@ -1,0 +1,2513 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>台股資產配置與風險分析器 | Portfolio & Sharpe Analyzer</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Google Fonts: Inter & Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans TC"', 'sans-serif'],
+          },
+          colors: {
+            navy: {
+              850: '#0f1c2e',
+              900: '#09121f',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    /* Custom subtle scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    input[type="range"] {
+      accent-color: #0d9488;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-navy-900 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center shadow-lg shrink-0">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight flex items-center gap-2">
+            台股資產配置與風險分析器
+            <span class="text-xs font-medium bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-full">最多 10 檔標的</span>
+          </h1>
+          <p class="text-xs text-slate-400">投資組合年化報酬、波動率、夏普比率（Sharpe Ratio）與效率前緣模擬</p>
+        </div>
+      </div>
+
+      <!-- Global Parameters Bar -->
+      <div class="flex flex-wrap items-center gap-3 bg-navy-850/90 border border-slate-700/70 px-3.5 py-2 rounded-xl text-xs">
+        <div class="flex items-center gap-1.5">
+          <label for="totalCapitalInput" class="text-slate-300 whitespace-nowrap">總投入資金 (TWD)</label>
+          <input id="totalCapitalInput" type="number" min="1000" step="10000" value="1000000"
+            class="w-28 bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-white font-semibold tabular-nums focus:outline-none focus:border-teal-400 text-right" />
+          <button id="headerLockTotalBtn" type="button" title="鎖定總投入金額：開啟後修改單檔金額時，總資金固定不變，剩餘金額自動分配至其他標的"
+            class="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 hover:text-white transition font-medium whitespace-nowrap">
+            <span id="headerLockIcon">🔓</span>
+            <span id="headerLockText">未鎖定</span>
+          </button>
+        </div>
+        <div class="h-4 w-px bg-slate-700 hidden sm:block"></div>
+        <div class="flex items-center gap-1.5">
+          <label for="rfInput" class="text-slate-300 whitespace-nowrap" title="台灣十年期公債殖利率或定存基準">無風險利率 Rf (%)</label>
+          <input id="rfInput" type="number" step="0.1" min="-5" max="20" value="1.5"
+            class="w-16 bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-teal-300 font-semibold tabular-nums focus:outline-none focus:border-teal-400 text-right" />
+        </div>
+        <div class="h-4 w-px bg-slate-700 hidden md:block"></div>
+        <div class="flex items-center gap-1.5">
+          <label for="marketVolInput" class="text-slate-300 whitespace-nowrap" title="台灣加權指數 (TAIEX) 基準年化波動率，用於拆解系統風險與非系統風險">大盤波動 σm (%)</label>
+          <input id="marketVolInput" type="number" step="0.5" min="1" max="80" value="16.5"
+            class="w-16 bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-amber-300 font-semibold tabular-nums focus:outline-none focus:border-teal-400 text-right" />
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Toast / Notification Banner -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- KPI Summary Cards -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Expected Return -->
+      <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">預期年化報酬率 E(Rp)</span>
+          <span class="p-2 rounded-lg bg-emerald-50 text-emerald-600">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+          </span>
+        </div>
+        <div class="mt-3">
+          <div id="kpiReturn" class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">--%</div>
+          <div id="kpiReturnTwd" class="text-xs text-emerald-600 font-medium mt-1 tabular-nums">預估年收益：-- 元</div>
+        </div>
+      </div>
+
+      <!-- Portfolio Volatility -->
+      <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">投資組合年化波動率 (σp)</span>
+          <span class="p-2 rounded-lg bg-amber-50 text-amber-600">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </span>
+        </div>
+        <div class="mt-3">
+          <div id="kpiVolatility" class="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">--%</div>
+          <div id="kpiVolatilityTwd" class="text-xs text-slate-500 font-medium mt-1 tabular-nums">1個標準差波動：± -- 元</div>
+        </div>
+      </div>
+
+      <!-- Sharpe Ratio -->
+      <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between relative overflow-hidden">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">夏普比率 (Sharpe Ratio)</span>
+          <span id="sharpeBadge" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">--</span>
+        </div>
+        <div class="mt-3">
+          <div id="kpiSharpe" class="text-2xl sm:text-3xl font-bold text-teal-700 tabular-nums">--</div>
+          <div class="text-xs text-slate-500 mt-1">每承受 1% 波動所獲超額報酬</div>
+        </div>
+      </div>
+
+      <!-- Diversification Benefit -->
+      <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">資產分散降波效益</span>
+          <span class="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </span>
+        </div>
+        <div class="mt-3">
+          <div id="kpiDivBenefit" class="text-2xl sm:text-3xl font-bold text-indigo-600 tabular-nums">--%</div>
+          <div id="kpiWeightedAvgVol" class="text-xs text-slate-500 mt-1 tabular-nums">加權平均單一波動：--%</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Systematic vs. Idiosyncratic Risk Diversification Module -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+      <div class="p-4 sm:p-5 border-b border-slate-200 bg-gradient-to-r from-navy-900 to-navy-850 text-white flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-teal-500/20 text-teal-300 border border-teal-500/30">單因子市場模型</span>
+            <h2 class="text-base sm:text-lg font-bold tracking-tight">系統風險與非系統風險分散情形分析</h2>
+          </div>
+          <p class="text-xs text-slate-300 mt-0.5">拆解投資組合波動中「大盤連動系統風險（不可分散）」與「個股/產業特有非系統風險（可透過分散消除）」之結構比例</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <div class="bg-slate-800/90 border border-slate-700 px-3 py-1.5 rounded-xl flex items-center gap-2">
+            <span class="text-slate-400">組合市場 Beta (β<sub>p</sub>)：</span>
+            <span id="sysPortfolioBeta" class="text-sm font-bold text-teal-300 tabular-nums">--</span>
+          </div>
+          <div class="bg-slate-800/90 border border-slate-700 px-3 py-1.5 rounded-xl flex items-center gap-2">
+            <span class="text-slate-400">等效均權檔數 (1/HHI)：</span>
+            <span id="sysEffectiveN" class="text-sm font-bold text-amber-300 tabular-nums">-- 檔</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        <!-- Left 7 Cols: Decomposition Metrics, Progress Bar & Dynamic Diagnosis -->
+        <div class="lg:col-span-7 flex flex-col justify-between space-y-4">
+          <!-- 3 Sub-Metrics -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-500">系統風險波動 (σ<sub>sys</sub>)</span>
+                <span class="w-2 h-2 rounded-full bg-blue-600"></span>
+              </div>
+              <div id="sysRiskVol" class="text-xl font-bold text-blue-700 mt-1 tabular-nums">--%</div>
+              <div id="sysRiskShare" class="text-[11px] text-slate-500 mt-0.5 tabular-nums">佔總風險變異：--%</div>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-500">非系統風險波動 (σ<sub>idio</sub>)</span>
+                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+              </div>
+              <div id="idioRiskVol" class="text-xl font-bold text-amber-600 mt-1 tabular-nums">--%</div>
+              <div id="idioRiskShare" class="text-[11px] text-slate-500 mt-0.5 tabular-nums">佔總風險變異：--%</div>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-teal-50/60 border border-teal-200/80">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-teal-800">非系統風險消除率</span>
+                <span class="w-2 h-2 rounded-full bg-teal-600"></span>
+              </div>
+              <div id="idioEliminationRate" class="text-xl font-bold text-teal-700 mt-1 tabular-nums">--%</div>
+              <div id="idioBeforeAfterText" class="text-[11px] text-teal-700/80 mt-0.5 tabular-nums">分散前 --% → 分散後 --%</div>
+            </div>
+          </div>
+
+          <!-- Visual Stacked Ratio Bar -->
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+            <div class="flex items-center justify-between text-xs font-semibold">
+              <span class="text-blue-700 flex items-center gap-1.5">
+                <span class="w-2.5 h-2.5 rounded-xs bg-blue-600 inline-block"></span>
+                系統風險（大盤連動 R<sup>2</sup>）：<span id="barSysPct" class="tabular-nums">--%</span>
+              </span>
+              <span class="text-amber-700 flex items-center gap-1.5">
+                非系統風險（個股特有殘餘）：<span id="barIdioPct" class="tabular-nums">--%</span>
+                <span class="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block"></span>
+              </span>
+            </div>
+            <div class="w-full h-3.5 bg-slate-200 rounded-full overflow-hidden flex shadow-inner">
+              <div id="sysBarFill" class="bg-blue-600 h-full transition-all duration-300" style="width: 50%"></div>
+              <div id="idioBarFill" class="bg-amber-500 h-full transition-all duration-300" style="width: 50%"></div>
+            </div>
+            <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-500 pt-0.5 gap-2">
+              <span id="hhiDetailText" class="tabular-nums">資金集中度 HHI：--（越低代表權重越分散）</span>
+              <span id="bestSharpeSysCompare" class="text-teal-700 font-medium tabular-nums">最佳夏普組合參考：系統 --% / 非系統 --%</span>
+            </div>
+          </div>
+
+          <!-- Smart Diversification Diagnosis Box -->
+          <div id="diversificationDiagnosisBox" class="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200/80 flex items-start gap-3">
+            <div id="diagnosisIconWrap" class="p-2 rounded-lg bg-indigo-100 text-indigo-700 shrink-0 mt-0.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div class="text-xs leading-relaxed">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="font-bold text-slate-900">風險分散結構智慧診斷</span>
+                <span id="diagnosisBadge" class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-100 text-indigo-800">分析中</span>
+              </div>
+              <p id="diagnosisText" class="text-slate-700">正在計算投資組合之系統性與非系統性風險分布...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right 5 Cols: Systematic vs Idiosyncratic Risk Chart -->
+        <div class="lg:col-span-5 bg-slate-50/70 rounded-xl p-4 border border-slate-200/80 flex flex-col justify-between">
+          <div class="mb-2">
+            <h3 class="text-sm font-bold text-slate-900">風險拆解對比：分散前後與各標的貢獻</h3>
+            <p class="text-[11px] text-slate-500">比較未分散加權風險 vs. 實際組合風險中的系統與非系統成分（變異數年化貢獻 %<sup>2</sup>）</p>
+          </div>
+          <div class="relative h-60 w-full">
+            <canvas id="systematicRiskChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Portfolio Builder Card -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+      <!-- Toolbar -->
+      <div class="p-4 sm:p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-slate-50/60">
+        <div>
+          <div class="flex items-center gap-2.5">
+            <h2 class="text-base sm:text-lg font-bold text-slate-900">投資組合標的設定</h2>
+            <span id="stockCountBadge" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700 tabular-nums">5 / 10 檔</span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">可直接選取熱門台股/ETF 快速帶入歷史參考參數，或自行編輯代號、配置金額、權重、預期報酬與波動率。</p>
+        </div>
+
+        <!-- Quick Add & Actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="toggleDynamicScaleBtn" type="button" title="開啟後，個別標的的預期報酬率、波動率與市場 Beta 會依據其配置金額規模（流動性/稅負/重倉衝擊）與代號自動連動計算"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-teal-300 bg-teal-50 text-teal-800 text-xs sm:text-sm font-semibold transition shadow-xs whitespace-nowrap">
+            <span id="dynamicScaleIcon">⚡</span>
+            <span id="dynamicScaleText">金額規模動態連動：開</span>
+          </button>
+          <div class="flex items-center gap-1.5">
+            <select id="presetCategoryFilter" title="依類別篩選台股或 ETF"
+              class="bg-white border border-slate-300 rounded-xl px-2.5 py-2 text-xs sm:text-sm text-slate-700 focus:outline-none focus:border-teal-500">
+              <option value="ALL">全部類別</option>
+            </select>
+            <input id="presetSearchInput" type="text" list="twStockDatalist" placeholder="搜尋代號或名稱 (如 2330, 00929, 長榮)..."
+              class="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-700 focus:outline-none focus:border-teal-500 w-44 sm:w-56" />
+            <datalist id="twStockDatalist"></datalist>
+            <select id="presetSelect" class="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-700 focus:outline-none focus:border-teal-500 max-w-[200px] sm:max-w-xs">
+              <option value="">-- 選擇台股 / ETF 快速加入 --</option>
+            </select>
+            <button id="addPresetBtn" type="button" class="bg-teal-600 hover:bg-teal-700 text-white text-xs sm:text-sm font-medium px-3.5 py-2 rounded-xl transition shadow-sm whitespace-nowrap">
+              + 加入標的
+            </button>
+          </div>
+          <button id="addCustomBtn" type="button" class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs sm:text-sm font-medium px-3 py-2 rounded-xl transition whitespace-nowrap">
+            + 自訂空白列
+          </button>
+          <button id="resetDefaultBtn" type="button" class="text-xs text-slate-500 hover:text-slate-800 px-2.5 py-2 rounded-xl transition" title="重設為預設台股組合">
+            重設範例
+          </button>
+        </div>
+      </div>
+
+      <!-- Weight Status Bar -->
+      <div id="weightStatusBar" class="px-4 sm:px-5 py-2.5 bg-emerald-50 border-b border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div class="flex items-center gap-2">
+          <span id="weightStatusIcon" class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+          <span id="weightStatusText" class="font-medium text-emerald-800">目前總配置權重：100.0%（配置完整）</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="flex items-center gap-1.5 bg-white/90 border border-slate-300 rounded-lg px-2 py-1">
+            <label for="sectionTotalCapitalInput" class="text-slate-600 font-medium whitespace-nowrap">總投入資金 (TWD)：</label>
+            <input id="sectionTotalCapitalInput" type="number" min="0" step="10000" value="1000000"
+              class="w-28 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded px-1.5 py-0.5 text-slate-900 font-bold tabular-nums text-right focus:outline-none" />
+            <button id="lockTotalCapitalBtn" type="button" title="開啟後總投入金額固定不變，調整任一標的金額時，其餘剩餘資金將自動分配給其他標的"
+              class="flex items-center gap-1 px-2 py-0.5 rounded border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition whitespace-nowrap">
+              <span id="lockTotalIcon">🔓</span>
+              <span id="lockTotalText">固定總金額：關</span>
+            </button>
+            <div class="hidden sm:flex items-center gap-1 pl-1 border-l border-slate-200">
+              <button type="button" data-quick-cap="100000" class="px-1.5 py-0.5 rounded text-[11px] bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 font-medium transition">10萬</button>
+              <button type="button" data-quick-cap="500000" class="px-1.5 py-0.5 rounded text-[11px] bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 font-medium transition">50萬</button>
+              <button type="button" data-quick-cap="1000000" class="px-1.5 py-0.5 rounded text-[11px] bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 font-medium transition">100萬</button>
+              <button type="button" data-quick-cap="3000000" class="px-1.5 py-0.5 rounded text-[11px] bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 font-medium transition">300萬</button>
+            </div>
+          </div>
+          <button id="equalWeightBtn" type="button" class="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition">
+            平均分配金額
+          </button>
+          <button id="normalizeWeightBtn" type="button" class="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-medium transition shadow-sm">
+            比例正規化 (自動調整至 100%)
+          </button>
+        </div>
+      </div>
+
+      <!-- Responsive Stock Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <th class="py-3 pl-4 pr-2 w-10">#</th>
+              <th class="py-3 px-2 min-w-[140px]">代號 / 名稱</th>
+              <th class="py-3 px-2 min-w-[105px]">資產類別</th>
+              <th class="py-3 px-2 min-w-[165px] text-right">配置金額 (TWD) / 鎖定</th>
+              <th class="py-3 px-2 min-w-[185px]">配置權重 (%)</th>
+              <th class="py-3 px-2 min-w-[100px] text-right">預期報酬 (%)</th>
+              <th class="py-3 px-2 min-w-[100px] text-right">波動率 (%)</th>
+              <th class="py-3 px-2 min-w-[88px] text-right" title="相對於台灣加權指數 (TAIEX) 的系統性風險敏感度">市場 Beta</th>
+              <th class="py-3 px-2 min-w-[85px] text-right">個別夏普</th>
+              <th class="py-3 pl-2 pr-4 w-12 text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody id="portfolioTableBody" class="divide-y divide-slate-100 text-sm">
+            <!-- Dynamic rows rendered here -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Correlation Matrix Section -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+      <div class="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 class="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+            資產相關係數矩陣 (Correlation Matrix, ρ<sub>ij</sub>)
+          </h2>
+          <p class="text-xs text-slate-500 mt-0.5">投資組合真實波動率取決於各標的間的相關性。系統已依資產類別自動設定合理相關性，您也可統一調整或逐格微調。</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl">
+            <label for="globalCorrSlider" class="text-xs font-medium text-slate-700 whitespace-nowrap">統一設定相關係數：</label>
+            <input id="globalCorrSlider" type="range" min="-0.5" max="1" step="0.05" value="0.45" class="w-24" />
+            <span id="globalCorrValue" class="text-xs font-bold text-teal-700 tabular-nums w-9 text-right">0.45</span>
+            <button id="applyGlobalCorrBtn" type="button" class="text-xs bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-2 py-1 rounded-lg font-medium transition">
+              套用全部
+            </button>
+          </div>
+          <button id="autoSmartCorrBtn" type="button" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl font-medium transition">
+            依類別智慧估算
+          </button>
+          <button id="toggleCorrMatrixBtn" type="button" class="text-xs bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5">
+            <span id="toggleCorrText">展開矩陣微調</span>
+            <svg id="toggleCorrIcon" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Collapsible Matrix Table -->
+      <div id="corrMatrixWrapper" class="hidden border-t border-slate-200 p-4 sm:p-5 bg-slate-50/40 overflow-x-auto">
+        <div class="text-xs text-slate-500 mb-3 flex flex-wrap items-center gap-4">
+          <span>提示：相關係數範圍介於 <strong class="text-slate-700">-1.0（完全負相關）</strong> 至 <strong class="text-slate-700">+1.0（完全正相關）</strong>。對角線固定為 1.00，修改右上或左下數值會自動對稱同步。</span>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-3 h-3 rounded bg-rose-100 border border-rose-300"></span><span>高度正相關 (&ge;0.7)</span>
+            <span class="inline-block w-3 h-3 rounded bg-amber-50 border border-amber-200"></span><span>中度相關 (0.3~0.69)</span>
+            <span class="inline-block w-3 h-3 rounded bg-emerald-100 border border-emerald-300"></span><span>低/負相關 (&lt;0.3)</span>
+          </div>
+        </div>
+        <div id="corrMatrixContainer"></div>
+      </div>
+    </section>
+
+    <!-- Charts & Simulation Grid -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Left: Asset Allocation Donut & Risk Contribution -->
+      <div class="lg:col-span-5 flex flex-col gap-6">
+        <!-- Allocation Donut Chart -->
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-base font-bold text-slate-900">資金配置比重分布</h3>
+              <p class="text-xs text-slate-500">各標的佔總投資組合權重比例</p>
+            </div>
+          </div>
+          <div class="relative h-64 w-full flex items-center justify-center">
+            <canvas id="allocationChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Risk Contribution Bar Chart -->
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 flex-1">
+          <div class="mb-3">
+            <h3 class="text-base font-bold text-slate-900">風險貢獻度 vs 資金權重對比</h3>
+            <p class="text-xs text-slate-500">檢視是否出現「資金佔比不高，但貢獻絕大部分組合波動風險」的集中度風險</p>
+          </div>
+          <div class="relative h-64 w-full">
+            <canvas id="riskContributionChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Efficient Frontier & Monte Carlo Simulation -->
+      <div class="lg:col-span-7 bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+        <div>
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900">風險－報酬散佈圖與效率前緣模擬</h3>
+              <p class="text-xs text-slate-500">透過 600 組隨機權重蒙地卡羅模擬，找出目前標的池中的「最佳夏普比率配置」</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button id="rerunSimBtn" type="button" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-3 py-2 rounded-xl transition">
+                重新模擬
+              </button>
+              <button id="applyMaxSharpeBtn" type="button" class="text-xs bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-semibold px-3.5 py-2 rounded-xl shadow-sm transition flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
+                一鍵套用最佳夏普權重
+              </button>
+            </div>
+          </div>
+
+          <!-- Max Sharpe Comparison Banner -->
+          <div id="maxSharpeBanner" class="mb-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div>
+              <span class="text-slate-500 block">模擬最佳夏普比率 (Max Sharpe)</span>
+              <span id="simBestSharpe" class="text-base font-bold text-teal-700 tabular-nums">--</span>
+            </div>
+            <div>
+              <span class="text-slate-500 block">最佳組合預期報酬 / 波動率</span>
+              <span id="simBestRetVol" class="text-sm font-semibold text-slate-800 tabular-nums">--% / --%</span>
+            </div>
+            <div>
+              <span class="text-slate-500 block">最低波動組合 (Min Volatility)</span>
+              <span id="simMinVol" class="text-sm font-semibold text-indigo-700 tabular-nums">波動 --% (報酬 --%)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scatter Chart Canvas -->
+        <div class="relative h-[360px] sm:h-[410px] w-full">
+          <canvas id="frontierChart"></canvas>
+        </div>
+
+        <div class="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <span>X 軸：年化波動率（風險）｜ Y 軸：預期年化報酬率</span>
+          <span>提示：越往左上方的投資組合，代表在相同風險下擁有更高的預期報酬</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Disclaimer Footer -->
+    <footer class="bg-white/70 border border-slate-200/80 rounded-2xl p-4 text-xs text-slate-500 leading-relaxed">
+      <strong class="text-slate-700">免責聲明與計算說明：</strong>
+      本工具內建之台股與 ETF 預期年化報酬率、波動率、市場 Beta（&beta;<sub>i</sub>）及相關係數係依據近年歷史市場特性估算之教學模擬預設值，非未來績效保證，亦不構成任何投資買賣建議。投資組合波動率採用現代投資組合理論（MPT）之共變異數矩陣公式 &sigma;<sub>p</sub> = &radic;(&Sigma;<sub>i</sub> &Sigma;<sub>j</sub> w<sub>i</sub> w<sub>j</sub> &sigma;<sub>i</sub> &sigma;<sub>j</sub> &rho;<sub>ij</sub>) 計算；系統風險波動率為 &sigma;<sub>sys</sub> = |&beta;<sub>p</sub>| &middot; &sigma;<sub>m</sub>（其中 &beta;<sub>p</sub> = &Sigma; w<sub>i</sub> &beta;<sub>i</sub>），非系統風險波動率為 &sigma;<sub>idio</sub> = &radic;max(0, &sigma;<sub>p</sub><sup>2</sup> &minus; &sigma;<sub>sys</sub><sup>2</sup>)，夏普比率為 (E(R<sub>p</sub>) &minus; R<sub>f</sub>) / &sigma;<sub>p</sub>。實際投資前請審慎評估自身風險承受度。
+    </footer>
+  </main>
+
+  <script>
+    // =========================================================================
+    // 1. Comprehensive Taiwan Stocks & ETFs Database (TWSE / TPEx Reference)
+    // =========================================================================
+    const PRESET_ASSETS = [
+      // --- 現金與定存 ---
+      { ticker: '定存', name: '新台幣定存 (1年期)', category: '定存/現金', ret: 1.6, vol: 0.2, beta: 0.00 },
+      { ticker: '00865B', name: '國泰US短期公債', category: '定存/現金', ret: 4.1, vol: 4.8, beta: -0.02 },
+
+      // --- 市值型 & 權值 ETF ---
+      { ticker: '0050', name: '元大台灣50', category: '市值型ETF', ret: 11.5, vol: 18.2, beta: 1.05 },
+      { ticker: '006208', name: '富邦台50', category: '市值型ETF', ret: 11.6, vol: 18.1, beta: 1.05 },
+      { ticker: '00692', name: '富邦公司治理', category: '市值型ETF', ret: 11.2, vol: 17.6, beta: 1.01 },
+      { ticker: '00850', name: '元大臺灣ESG永續', category: '市值型ETF', ret: 11.0, vol: 17.4, beta: 0.99 },
+      { ticker: '00922', name: '國泰台灣領袖50', category: '市值型ETF', ret: 11.4, vol: 17.9, beta: 1.03 },
+      { ticker: '00923', name: '群益台ESG低碳50', category: '市值型ETF', ret: 11.3, vol: 18.0, beta: 1.02 },
+      { ticker: '0051', name: '元大中型100', category: '市值型ETF', ret: 10.8, vol: 19.5, beta: 0.96 },
+      { ticker: '00733', name: '富邦臺灣中小', category: '市值型ETF', ret: 13.5, vol: 23.8, beta: 1.08 },
+      { ticker: '00905', name: 'FT臺灣Smart', category: '市值型ETF', ret: 10.9, vol: 17.2, beta: 0.97 },
+      { ticker: '006203', name: '元大MSCI台灣', category: '市值型ETF', ret: 11.3, vol: 18.0, beta: 1.03 },
+      { ticker: '006204', name: '永豐臺灣加權', category: '市值型ETF', ret: 11.0, vol: 17.3, beta: 1.00 },
+
+      // --- 高股息 & 低波 ETF ---
+      { ticker: '0056', name: '元大高股息', category: '高股息ETF', ret: 9.2, vol: 15.4, beta: 0.78 },
+      { ticker: '00878', name: '國泰永續高股息', category: '高股息ETF', ret: 9.0, vol: 14.2, beta: 0.72 },
+      { ticker: '00919', name: '群益台灣精選高息', category: '高股息ETF', ret: 9.8, vol: 15.8, beta: 0.80 },
+      { ticker: '00929', name: '復華台灣科技優息', category: '高股息ETF', ret: 9.6, vol: 16.5, beta: 0.84 },
+      { ticker: '00940', name: '元大台灣價值高息', category: '高股息ETF', ret: 8.8, vol: 14.8, beta: 0.74 },
+      { ticker: '00939', name: '統一台灣高息動能', category: '高股息ETF', ret: 9.1, vol: 15.2, beta: 0.77 },
+      { ticker: '00915', name: '凱基優選高股息30', category: '高股息ETF', ret: 10.2, vol: 15.0, beta: 0.75 },
+      { ticker: '00918', name: '大華優利高填息30', category: '高股息ETF', ret: 9.9, vol: 15.5, beta: 0.78 },
+      { ticker: '00713', name: '元大台灣高息低波', category: '低波高息ETF', ret: 9.5, vol: 11.8, beta: 0.55 },
+      { ticker: '00900', name: '富邦特選高股息30', category: '高股息ETF', ret: 8.7, vol: 16.2, beta: 0.81 },
+      { ticker: '00701', name: '國泰股利精選30', category: '低波高息ETF', ret: 8.4, vol: 12.1, beta: 0.58 },
+      { ticker: '00731', name: '復華富時高息低波', category: '低波高息ETF', ret: 8.9, vol: 12.0, beta: 0.56 },
+      { ticker: '00934', name: '中信成長高股息', category: '高股息ETF', ret: 9.4, vol: 15.6, beta: 0.79 },
+      { ticker: '00936', name: '台新永續高息中小', category: '高股息ETF', ret: 9.3, vol: 16.4, beta: 0.82 },
+      { ticker: '00944', name: '野村趨勢動能高息', category: '高股息ETF', ret: 9.0, vol: 15.0, beta: 0.75 },
+      { ticker: '00946', name: '群益科技高息成長', category: '高股息ETF', ret: 9.5, vol: 16.1, beta: 0.83 },
+
+      // --- 科技 / 半導體 / 金融 / 海外主題 ETF ---
+      { ticker: '0052', name: '富邦科技', category: '科技主題ETF', ret: 14.5, vol: 23.2, beta: 1.24 },
+      { ticker: '0053', name: '元大電子', category: '科技主題ETF', ret: 13.8, vol: 22.0, beta: 1.18 },
+      { ticker: '00881', name: '國泰台灣5G+', category: '科技主題ETF', ret: 12.6, vol: 20.5, beta: 1.12 },
+      { ticker: '00891', name: '中信關鍵半導體', category: '科技主題ETF', ret: 13.9, vol: 23.5, beta: 1.22 },
+      { ticker: '00892', name: '富邦台灣半導體', category: '科技主題ETF', ret: 13.7, vol: 23.1, beta: 1.20 },
+      { ticker: '00904', name: '新光臺灣半導體30', category: '科技主題ETF', ret: 13.6, vol: 22.8, beta: 1.19 },
+      { ticker: '00927', name: '群益半導體收益', category: '科技主題ETF', ret: 12.4, vol: 21.2, beta: 1.14 },
+      { ticker: '00935', name: '野村臺灣新科技50', category: '科技主題ETF', ret: 13.4, vol: 21.8, beta: 1.16 },
+      { ticker: '0055', name: '元大MSCI金融', category: '金融股', ret: 8.5, vol: 14.8, beta: 0.74 },
+      { ticker: '00646', name: '元大S&P500', category: '海外股票ETF', ret: 10.8, vol: 15.5, beta: 0.65 },
+      { ticker: '00662', name: '富邦NASDAQ', category: '海外股票ETF', ret: 13.6, vol: 20.4, beta: 0.78 },
+      { ticker: '00830', name: '國泰費城半導體', category: '海外股票ETF', ret: 16.2, vol: 27.8, beta: 0.95 },
+      { ticker: '00757', name: '統一FANG+', category: '海外股票ETF', ret: 17.5, vol: 26.5, beta: 0.88 },
+      { ticker: '00924', name: '復華S&P500成長', category: '海外股票ETF', ret: 12.4, vol: 17.8, beta: 0.72 },
+      { ticker: '00645', name: '富邦日本', category: '海外股票ETF', ret: 8.2, vol: 16.0, beta: 0.52 },
+      { ticker: '00661', name: '元大日經225', category: '海外股票ETF', ret: 8.5, vol: 16.5, beta: 0.54 },
+      { ticker: '0061', name: '元大寶滬深', category: '海外股票ETF', ret: 5.5, vol: 22.5, beta: 0.45 },
+      { ticker: '00882', name: '中信中國高股息', category: '海外股票ETF', ret: 6.8, vol: 21.0, beta: 0.42 },
+
+      // --- 槓桿 / 反向 / 原物料 ETF ---
+      { ticker: '00631L', name: '元大台灣50正2', category: '槓桿/反向ETF', ret: 19.5, vol: 36.8, beta: 2.05 },
+      { ticker: '00675L', name: '富邦臺灣加權正2', category: '槓桿/反向ETF', ret: 19.0, vol: 35.6, beta: 2.00 },
+      { ticker: '00685L', name: '群益臺灣加權正2', category: '槓桿/反向ETF', ret: 18.8, vol: 35.5, beta: 2.00 },
+      { ticker: '00632R', name: '元大台灣50反1', category: '槓桿/反向ETF', ret: -6.5, vol: 17.5, beta: -1.00 },
+      { ticker: '00670L', name: '富邦NASDAQ正2', category: '槓桿/反向ETF', ret: 21.0, vol: 40.5, beta: 1.55 },
+      { ticker: '00635U', name: '期元大S&P黃金', category: '原物料/其他', ret: 7.2, vol: 14.5, beta: 0.05 },
+      { ticker: '00642U', name: '期元大S&P石油', category: '原物料/其他', ret: 4.5, vol: 32.0, beta: 0.25 },
+
+      // --- 債券 ETF (美債 / 投資級債 / 非投資級債) ---
+      { ticker: '00679B', name: '元大美債20年', category: '長天期公債', ret: 4.3, vol: 12.8, beta: -0.12 },
+      { ticker: '00687B', name: '國泰20年美債', category: '長天期公債', ret: 4.3, vol: 12.7, beta: -0.12 },
+      { ticker: '00764B', name: '群益25年美債', category: '長天期公債', ret: 4.4, vol: 13.5, beta: -0.13 },
+      { ticker: '00696B', name: '富邦美債20年', category: '長天期公債', ret: 4.3, vol: 12.6, beta: -0.12 },
+      { ticker: '00795B', name: '中信美國公債20年', category: '長天期公債', ret: 4.3, vol: 12.8, beta: -0.12 },
+      { ticker: '00697B', name: '元大美債7-10', category: '長天期公債', ret: 4.2, vol: 8.6, beta: -0.06 },
+      { ticker: '00719B', name: '元大美債1-3', category: '定存/現金', ret: 4.0, vol: 5.2, beta: -0.02 },
+      { ticker: '00720B', name: '元大投資級公司債', category: '投資級債券', ret: 5.1, vol: 10.5, beta: -0.05 },
+      { ticker: '00725B', name: '國泰投資級公司債', category: '投資級債券', ret: 5.2, vol: 10.8, beta: -0.04 },
+      { ticker: '00937B', name: '群益ESG投等債20+', category: '投資級債券', ret: 5.4, vol: 11.4, beta: -0.04 },
+      { ticker: '00740B', name: '富邦全球投等債', category: '投資級債券', ret: 5.0, vol: 9.8, beta: -0.03 },
+      { ticker: '00751B', name: '元大AAA至A公司債', category: '投資級債券', ret: 4.9, vol: 10.2, beta: -0.05 },
+      { ticker: '00772B', name: '中信高評級公司債', category: '投資級債券', ret: 5.0, vol: 10.4, beta: -0.04 },
+      { ticker: '00933B', name: '國泰10Y+金融債', category: '投資級債券', ret: 5.3, vol: 10.6, beta: -0.02 },
+      { ticker: '00945B', name: '凱基美國非投等債', category: '投資級債券', ret: 6.5, vol: 8.9, beta: 0.18 },
+      { ticker: '00953B', name: '群益優選非投等債', category: '投資級債券', ret: 6.4, vol: 8.8, beta: 0.17 },
+
+      // --- 台股個股：半導體與IC設計 ---
+      { ticker: '2330', name: '台積電', category: '半導體科技', ret: 16.5, vol: 26.5, beta: 1.32 },
+      { ticker: '2454', name: '聯發科', category: '半導體科技', ret: 14.8, vol: 29.0, beta: 1.35 },
+      { ticker: '2303', name: '聯電', category: '半導體科技', ret: 10.2, vol: 25.5, beta: 1.08 },
+      { ticker: '3711', name: '日月光投控', category: '半導體科技', ret: 12.0, vol: 26.8, beta: 1.18 },
+      { ticker: '3034', name: '聯詠', category: '半導體科技', ret: 12.8, vol: 28.5, beta: 1.22 },
+      { ticker: '2379', name: '瑞昱', category: '半導體科技', ret: 12.2, vol: 27.2, beta: 1.15 },
+      { ticker: '3008', name: '大立光', category: '半導體科技', ret: 9.5, vol: 28.0, beta: 1.05 },
+      { ticker: '6415', name: '矽力*-KY', category: '半導體科技', ret: 13.5, vol: 36.5, beta: 1.42 },
+      { ticker: '5274', name: '信驊', category: '半導體科技', ret: 16.0, vol: 35.0, beta: 1.38 },
+      { ticker: '3661', name: '世芯-KY', category: '半導體科技', ret: 17.5, vol: 38.5, beta: 1.48 },
+      { ticker: '3443', name: '創意', category: '半導體科技', ret: 15.8, vol: 36.0, beta: 1.40 },
+      { ticker: '2344', name: '華邦電', category: '半導體科技', ret: 8.8, vol: 31.0, beta: 1.25 },
+      { ticker: '2408', name: '南亞科', category: '半導體科技', ret: 8.5, vol: 30.5, beta: 1.22 },
+      { ticker: '6488', name: '環球晶', category: '半導體科技', ret: 11.4, vol: 29.5, beta: 1.20 },
+      { ticker: '3529', name: '力旺', category: '半導體科技', ret: 16.2, vol: 34.8, beta: 1.35 },
+
+      // --- 台股個股：AI伺服器 / 電子代工 / 電腦週邊 ---
+      { ticker: '2317', name: '鴻海', category: '電子代工', ret: 11.2, vol: 23.5, beta: 1.12 },
+      { ticker: '2382', name: '廣達', category: '電子代工', ret: 14.5, vol: 29.8, beta: 1.28 },
+      { ticker: '3231', name: '緯創', category: '電子代工', ret: 13.2, vol: 31.5, beta: 1.25 },
+      { ticker: '6669', name: '緯穎', category: '電子代工', ret: 16.0, vol: 33.5, beta: 1.32 },
+      { ticker: '2357', name: '華碩', category: '電子代工', ret: 10.8, vol: 24.0, beta: 1.02 },
+      { ticker: '2356', name: '英業達', category: '電子代工', ret: 10.5, vol: 27.5, beta: 1.15 },
+      { ticker: '4938', name: '和碩', category: '電子代工', ret: 8.9, vol: 20.5, beta: 0.88 },
+      { ticker: '2324', name: '仁寶', category: '電子代工', ret: 8.6, vol: 21.0, beta: 0.90 },
+      { ticker: '2353', name: '宏碁', category: '電子代工', ret: 9.2, vol: 25.0, beta: 1.04 },
+      { ticker: '2301', name: '光寶科', category: '電子代工', ret: 10.6, vol: 23.8, beta: 1.05 },
+      { ticker: '2308', name: '台達電', category: '電子代工', ret: 12.5, vol: 22.8, beta: 1.10 },
+      { ticker: '3017', name: '奇鋐', category: '電子代工', ret: 15.2, vol: 34.0, beta: 1.30 },
+      { ticker: '3324', name: '雙鴻', category: '電子代工', ret: 14.8, vol: 35.2, beta: 1.32 },
+      { ticker: '2376', name: '技嘉', category: '電子代工', ret: 13.6, vol: 31.8, beta: 1.24 },
+      { ticker: '2377', name: '微星', category: '電子代工', ret: 11.8, vol: 26.5, beta: 1.12 },
+      { ticker: '2345', name: '智邦', category: '電子代工', ret: 14.6, vol: 28.5, beta: 1.18 },
+      { ticker: '2327', name: '國巨', category: '電子代工', ret: 11.5, vol: 28.0, beta: 1.16 },
+      { ticker: '3037', name: '欣興', category: '電子代工', ret: 12.4, vol: 32.0, beta: 1.26 },
+      { ticker: '2383', name: '台光電', category: '電子代工', ret: 14.2, vol: 30.2, beta: 1.22 },
+      { ticker: '2395', name: '研華', category: '電子代工', ret: 10.4, vol: 21.2, beta: 0.92 },
+
+      // --- 台股個股：金融保險 ---
+      { ticker: '2881', name: '富邦金', category: '金融股', ret: 8.8, vol: 17.5, beta: 0.85 },
+      { ticker: '2882', name: '國泰金', category: '金融股', ret: 8.2, vol: 18.0, beta: 0.86 },
+      { ticker: '2891', name: '中信金', category: '金融股', ret: 8.6, vol: 16.2, beta: 0.78 },
+      { ticker: '2886', name: '兆豐金', category: '金融股', ret: 8.0, vol: 14.5, beta: 0.68 },
+      { ticker: '2884', name: '玉山金', category: '金融股', ret: 8.1, vol: 15.2, beta: 0.72 },
+      { ticker: '2892', name: '第一金', category: '金融股', ret: 7.8, vol: 13.8, beta: 0.64 },
+      { ticker: '5880', name: '合庫金', category: '金融股', ret: 7.5, vol: 13.2, beta: 0.60 },
+      { ticker: '2880', name: '華南金', category: '金融股', ret: 7.6, vol: 13.6, beta: 0.62 },
+      { ticker: '2885', name: '元大金', category: '金融股', ret: 9.0, vol: 17.8, beta: 0.88 },
+      { ticker: '2883', name: '凱基金', category: '金融股', ret: 8.3, vol: 18.5, beta: 0.84 },
+      { ticker: '2887', name: '台新金', category: '金融股', ret: 7.9, vol: 15.0, beta: 0.70 },
+      { ticker: '2890', name: '永豐金', category: '金融股', ret: 8.4, vol: 15.4, beta: 0.73 },
+      { ticker: '2801', name: '彰銀', category: '金融股', ret: 7.2, vol: 13.5, beta: 0.61 },
+      { ticker: '2834', name: '臺企銀', category: '金融股', ret: 7.4, vol: 15.8, beta: 0.68 },
+      { ticker: '5876', name: '上海商銀', category: '金融股', ret: 7.3, vol: 14.0, beta: 0.63 },
+      { ticker: '5871', name: '中租-KY', category: '金融股', ret: 9.8, vol: 26.5, beta: 1.05 },
+
+      // --- 台股個股：電信防禦 ---
+      { ticker: '2412', name: '中華電', category: '電信防禦', ret: 5.2, vol: 8.5, beta: 0.30 },
+      { ticker: '3045', name: '台灣大', category: '電信防禦', ret: 5.5, vol: 9.6, beta: 0.34 },
+      { ticker: '4904', name: '遠傳', category: '電信防禦', ret: 5.8, vol: 10.5, beta: 0.38 },
+
+      // --- 台股個股：航運交通 ---
+      { ticker: '2603', name: '長榮', category: '航運交通', ret: 11.5, vol: 36.0, beta: 1.15 },
+      { ticker: '2609', name: '陽明', category: '航運交通', ret: 9.8, vol: 38.5, beta: 1.18 },
+      { ticker: '2615', name: '萬海', category: '航運交通', ret: 9.5, vol: 39.0, beta: 1.16 },
+      { ticker: '2618', name: '長榮航', category: '航運交通', ret: 9.2, vol: 25.5, beta: 0.92 },
+      { ticker: '2610', name: '華航', category: '航運交通', ret: 8.6, vol: 24.8, beta: 0.88 },
+      { ticker: '2633', name: '台灣高鐵', category: '航運交通', ret: 6.2, vol: 12.5, beta: 0.45 },
+
+      // --- 台股個股：傳產龍頭 / 塑化鋼鐵 / 重電 / 食品生技 ---
+      { ticker: '1301', name: '台塑', category: '傳產塑化鋼鐵', ret: 6.0, vol: 19.5, beta: 0.82 },
+      { ticker: '1303', name: '南亞', category: '傳產塑化鋼鐵', ret: 6.2, vol: 19.2, beta: 0.84 },
+      { ticker: '1326', name: '台化', category: '傳產塑化鋼鐵', ret: 5.8, vol: 18.8, beta: 0.80 },
+      { ticker: '6505', name: '台塑化', category: '傳產塑化鋼鐵', ret: 6.1, vol: 18.5, beta: 0.76 },
+      { ticker: '2002', name: '中鋼', category: '傳產塑化鋼鐵', ret: 6.5, vol: 18.2, beta: 0.78 },
+      { ticker: '1101', name: '台泥', category: '傳產塑化鋼鐵', ret: 6.4, vol: 17.5, beta: 0.72 },
+      { ticker: '1102', name: '亞泥', category: '傳產塑化鋼鐵', ret: 6.8, vol: 16.0, beta: 0.65 },
+      { ticker: '1216', name: '統一', category: '民生消費生技', ret: 7.8, vol: 14.2, beta: 0.56 },
+      { ticker: '2912', name: '統一超', category: '民生消費生技', ret: 7.4, vol: 13.8, beta: 0.50 },
+      { ticker: '9910', name: '豐泰', category: '民生消費生技', ret: 8.2, vol: 21.5, beta: 0.78 },
+      { ticker: '1476', name: '儒鴻', category: '民生消費生技', ret: 9.5, vol: 24.0, beta: 0.88 },
+      { ticker: '2207', name: '和泰車', category: '民生消費生技', ret: 8.6, vol: 19.8, beta: 0.74 },
+      { ticker: '1513', name: '中興電', category: '重電綠能', ret: 12.8, vol: 29.5, beta: 1.06 },
+      { ticker: '1519', name: '華城', category: '重電綠能', ret: 15.5, vol: 37.5, beta: 1.24 },
+      { ticker: '1503', name: '士電', category: '重電綠能', ret: 12.4, vol: 30.0, beta: 1.08 },
+      { ticker: '1504', name: '東元', category: '重電綠能', ret: 9.2, vol: 22.5, beta: 0.86 },
+      { ticker: '1605', name: '華新', category: '重電綠能', ret: 8.5, vol: 25.0, beta: 0.95 },
+      { ticker: '6446', name: '藥華藥', category: '民生消費生技', ret: 12.0, vol: 35.5, beta: 0.82 },
+      { ticker: '6472', name: '保瑞', category: '民生消費生技', ret: 13.2, vol: 33.0, beta: 0.85 },
+      { ticker: '4743', name: '合一', category: '民生消費生技', ret: 9.5, vol: 38.0, beta: 0.90 }
+    ];
+
+    const CATEGORY_DEFAULT_BETA = {
+      '定存/現金': 0.00,
+      '市值型ETF': 1.02,
+      '高股息ETF': 0.76,
+      '低波高息ETF': 0.55,
+      '科技主題ETF': 1.18,
+      '海外股票ETF': 0.72,
+      '槓桿/反向ETF': 1.85,
+      '原物料/其他': 0.15,
+      '半導體科技': 1.30,
+      '電子代工': 1.10,
+      '金融股': 0.82,
+      '電信防禦': 0.32,
+      '航運交通': 1.02,
+      '傳產塑化鋼鐵': 0.78,
+      '重電綠能': 1.04,
+      '民生消費生技': 0.72,
+      '長天期公債': -0.10,
+      '投資級債券': -0.05,
+      '其他資產': 0.85
+    };
+
+    const ASSET_CATEGORIES = [
+      '定存/現金',
+      '市值型ETF',
+      '高股息ETF',
+      '低波高息ETF',
+      '科技主題ETF',
+      '海外股票ETF',
+      '槓桿/反向ETF',
+      '原物料/其他',
+      '半導體科技',
+      '電子代工',
+      '金融股',
+      '電信防禦',
+      '航運交通',
+      '傳產塑化鋼鐵',
+      '重電綠能',
+      '民生消費生技',
+      '長天期公債',
+      '投資級債券',
+      '其他資產'
+    ];
+
+    const CHART_PALETTE = [
+      '#0d9488', // teal-600
+      '#2563eb', // blue-600
+      '#f59e0b', // amber-500
+      '#6366f1', // indigo-500
+      '#ec4899', // pink-500
+      '#10b981', // emerald-500
+      '#8b5cf6', // violet-500
+      '#f97316', // orange-500
+      '#06b6d4', // cyan-500
+      '#64748b'  // slate-500
+    ];
+
+    // =========================================================================
+    // 2. Application State
+    // =========================================================================
+    let state = {
+      totalCapital: 1000000,
+      lockTotalCapital: false,
+      dynamicScaleLinked: true, // Link individual ret, vol, beta with ticker & allocated amount
+      riskFreeRate: 1.5,
+      marketVolatility: 16.5, // TAIEX benchmark annualized volatility (%)
+      assets: [],
+      corrMatrix: [], // NxN array of pairwise correlations
+      bestSimWeights: null,
+      charts: {
+        allocation: null,
+        riskContribution: null,
+        systematicRisk: null,
+        frontier: null
+      }
+    };
+
+    let nextAssetId = 1;
+
+    // =========================================================================
+    // 3. Smart Pairwise Correlation Estimator by Asset Category
+    // =========================================================================
+    function estimatePairwiseCorrelation(catA, catB) {
+      if (catA === catB) {
+        if (catA.includes('債')) return 0.78;
+        if (catA === '電信防禦') return 0.65;
+        if (catA === '定存/現金') return 1.0;
+        if (catA === '海外股票ETF') return 0.68;
+        if (catA === '原物料/其他') return 0.35;
+        return 0.75;
+      }
+
+      if (catA === '定存/現金' || catB === '定存/現金') {
+        return 0.05; // Fixed deposit has virtually zero correlation with stocks and bonds
+      }
+
+      const isBondA = catA.includes('債');
+      const isBondB = catB.includes('債');
+      if (isBondA !== isBondB) {
+        return -0.15; // Stock-Bond diversification
+      }
+
+      if (catA === '原物料/其他' || catB === '原物料/其他') {
+        return 0.12;
+      }
+
+      const techGroup = ['市值型ETF', '科技主題ETF', '槓桿/反向ETF', '半導體科技', '電子代工', '重電綠能'];
+      const divGroup = ['高股息ETF', '低波高息ETF', '金融股', '電信防禦', '傳產塑化鋼鐵', '民生消費生技'];
+
+      if (techGroup.includes(catA) && techGroup.includes(catB)) return 0.72;
+      if (divGroup.includes(catA) && divGroup.includes(catB)) return 0.55;
+      if ((techGroup.includes(catA) && divGroup.includes(catB)) || (divGroup.includes(catA) && techGroup.includes(catB))) {
+        return 0.42;
+      }
+      if (catA === '海外股票ETF' || catB === '海外股票ETF') {
+        return 0.52;
+      }
+
+      return 0.45;
+    }
+
+    function rebuildSmartCorrelationMatrix(preserveExisting = false, oldAssets = [], oldMatrix = []) {
+      const n = state.assets.length;
+      const newMatrix = Array.from({ length: n }, () => Array(n).fill(0));
+
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i === j) {
+            newMatrix[i][j] = 1.0;
+          } else if (preserveExisting) {
+            const oldIdxI = oldAssets.findIndex(a => a.id === state.assets[i].id);
+            const oldIdxJ = oldAssets.findIndex(a => a.id === state.assets[j].id);
+            if (oldIdxI !== -1 && oldIdxJ !== -1 && oldMatrix[oldIdxI] && typeof oldMatrix[oldIdxI][oldIdxJ] === 'number') {
+              newMatrix[i][j] = oldMatrix[oldIdxI][oldIdxJ];
+            } else {
+              newMatrix[i][j] = estimatePairwiseCorrelation(state.assets[i].category, state.assets[j].category);
+            }
+          } else {
+            newMatrix[i][j] = estimatePairwiseCorrelation(state.assets[i].category, state.assets[j].category);
+          }
+        }
+      }
+
+      state.corrMatrix = newMatrix;
+    }
+
+    // =========================================================================
+    // 4. Default Portfolio Initialization & Dynamic Scale Linkage
+    // =========================================================================
+    function loadDefaultPortfolio() {
+      const defaults = [
+        { ticker: '0050', name: '元大台灣50', category: '市值型ETF', weight: 30, ret: 11.5, vol: 18.2, beta: 1.05 },
+        { ticker: '2330', name: '台積電', category: '半導體科技', weight: 25, ret: 16.5, vol: 26.5, beta: 1.32 },
+        { ticker: '0056', name: '元大高股息', category: '高股息ETF', weight: 20, ret: 9.2, vol: 15.4, beta: 0.78 },
+        { ticker: '2881', name: '富邦金', category: '金融股', weight: 15, ret: 8.8, vol: 17.5, beta: 0.85 },
+        { ticker: '2412', name: '中華電', category: '電信防禦', weight: 10, ret: 5.2, vol: 8.5, beta: 0.30 }
+      ];
+
+      state.assets = defaults.map(d => {
+        const amt = Math.round((d.weight / 100) * state.totalCapital);
+        return {
+          id: nextAssetId++,
+          ...d,
+          baseRet: d.ret,
+          baseVol: d.vol,
+          baseBeta: d.beta,
+          locked: false,
+          amount: amt
+        };
+      });
+
+      recalculateLinkedAssetParams();
+      rebuildSmartCorrelationMatrix(false);
+    }
+
+    // Dynamic Linkage: Ticker Lookup & Amount-Scale Sensitivity Engine
+    function getTickerScaleProfile(asset) {
+      const t = (asset.ticker || '').trim().toUpperCase();
+      const cat = asset.category || '其他資產';
+
+      if (t === '定存' || cat === '定存/現金') {
+        return { retDragPerM: -0.18, volAmpPerM: 0.00, betaShiftPerM: 0.00, isDeposit: true };
+      }
+      if (t === '2330' || t === '2454' || cat === '半導體科技') {
+        return { retDragPerM: -0.12, volAmpPerM: 0.55, betaShiftPerM: 0.035, isDeposit: false };
+      }
+      if (t === '0050' || t === '006208' || cat === '市值型ETF') {
+        return { retDragPerM: -0.04, volAmpPerM: 0.15, betaShiftPerM: 0.01, isDeposit: false };
+      }
+      if (cat === '槓桿/反向ETF') {
+        return { retDragPerM: -0.25, volAmpPerM: 0.85, betaShiftPerM: 0.06, isDeposit: false };
+      }
+      if (cat === '航運交通' || cat === '重電綠能') {
+        return { retDragPerM: -0.14, volAmpPerM: 0.65, betaShiftPerM: 0.04, isDeposit: false };
+      }
+      if (cat.includes('高股息') || cat === '金融股') {
+        return { retDragPerM: -0.15, volAmpPerM: 0.25, betaShiftPerM: 0.02, isDeposit: false };
+      }
+      if (cat.includes('債')) {
+        return { retDragPerM: -0.06, volAmpPerM: 0.20, betaShiftPerM: -0.01, isDeposit: false };
+      }
+      return { retDragPerM: -0.10, volAmpPerM: 0.35, betaShiftPerM: 0.025, isDeposit: false };
+    }
+
+    function recalculateLinkedAssetParams() {
+      const totalCap = Math.max(1, state.totalCapital || 1000000);
+      state.assets.forEach(asset => {
+        if (typeof asset.baseRet !== 'number') asset.baseRet = asset.ret;
+        if (typeof asset.baseVol !== 'number') asset.baseVol = asset.vol;
+        if (typeof asset.baseBeta !== 'number') asset.baseBeta = asset.beta;
+
+        if (!state.dynamicScaleLinked) {
+          asset.ret = Number(asset.baseRet.toFixed(2));
+          asset.vol = Number(asset.baseVol.toFixed(2));
+          asset.beta = Number(asset.baseBeta.toFixed(2));
+          return;
+        }
+
+        const amt = Math.max(0, asset.amount || 0);
+        const amtInMillions = amt / 1000000;
+        const weightRatio = amt / totalCap;
+        const profile = getTickerScaleProfile(asset);
+
+        const scaleFactor = Math.log1p(amtInMillions * 2.5) - Math.log1p(0.2 * 2.5);
+        const concExcess = Math.max(0, weightRatio - 0.25);
+
+        let linkedRet = asset.baseRet + profile.retDragPerM * scaleFactor - (concExcess * 0.8);
+        if (profile.isDeposit && amt >= 3000000) {
+          linkedRet = Math.max(0.65, linkedRet - 0.35);
+        }
+
+        const linkedVol = Math.max(
+          0.1,
+          asset.baseVol + profile.volAmpPerM * scaleFactor + (concExcess * 4.2 * Math.abs(asset.baseBeta))
+        );
+
+        const linkedBeta = Math.max(
+          -2,
+          Math.min(3, asset.baseBeta + profile.betaShiftPerM * scaleFactor + (concExcess * 0.14 * Math.sign(asset.baseBeta || 1)))
+        );
+
+        asset.ret = Number(linkedRet.toFixed(2));
+        asset.vol = Number(linkedVol.toFixed(2));
+        asset.beta = Number(linkedBeta.toFixed(2));
+      });
+    }
+
+    function applyTickerLookup(asset, rawTicker) {
+      const cleaned = (rawTicker || '').trim().toUpperCase();
+      asset.ticker = cleaned;
+      if (!cleaned) return null;
+
+      const matched = PRESET_ASSETS.find(p => p.ticker.toUpperCase() === cleaned);
+      if (matched) {
+        asset.name = matched.name;
+        asset.category = matched.category;
+        asset.baseRet = matched.ret;
+        asset.baseVol = matched.vol;
+        asset.baseBeta = matched.beta;
+        return matched;
+      }
+      return null;
+    }
+
+    function updateLockTotalUI() {
+      const btn = document.getElementById('lockTotalCapitalBtn');
+      const icon = document.getElementById('lockTotalIcon');
+      const text = document.getElementById('lockTotalText');
+      const hBtn = document.getElementById('headerLockTotalBtn');
+      const hIcon = document.getElementById('headerLockIcon');
+      const hText = document.getElementById('headerLockText');
+
+      if (state.lockTotalCapital) {
+        if (btn) {
+          btn.className = 'flex items-center gap-1 px-2.5 py-0.5 rounded border border-amber-400 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold transition whitespace-nowrap shadow-xs';
+        }
+        if (icon) icon.textContent = '🔒';
+        if (text) text.textContent = '固定總金額：開';
+
+        if (hBtn) {
+          hBtn.className = 'flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-400/80 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition font-semibold whitespace-nowrap';
+        }
+        if (hIcon) hIcon.textContent = '🔒';
+        if (hText) hText.textContent = '已固定';
+      } else {
+        if (btn) {
+          btn.className = 'flex items-center gap-1 px-2 py-0.5 rounded border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition whitespace-nowrap';
+        }
+        if (icon) icon.textContent = '🔓';
+        if (text) text.textContent = '固定總金額：關';
+
+        if (hBtn) {
+          hBtn.className = 'flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 hover:text-white transition font-medium whitespace-nowrap';
+        }
+        if (hIcon) hIcon.textContent = '🔓';
+        if (hText) hText.textContent = '未鎖定';
+      }
+    }
+
+    function populatePresetDropdown(filterCategory = 'ALL', searchQuery = '') {
+      const select = document.getElementById('presetSelect');
+      const catFilter = document.getElementById('presetCategoryFilter');
+      const datalist = document.getElementById('twStockDatalist');
+
+      if (catFilter && catFilter.options.length <= 1) {
+        const uniqueCats = [...new Set(PRESET_ASSETS.map(p => p.category))];
+        uniqueCats.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = `${cat} (${PRESET_ASSETS.filter(p => p.category === cat).length})`;
+          catFilter.appendChild(opt);
+        });
+      }
+
+      if (datalist && datalist.options.length === 0) {
+        PRESET_ASSETS.forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = `${item.ticker} ${item.name}`;
+          opt.label = `${item.category}｜報酬 ${item.ret}% / 波動 ${item.vol}% / β ${item.beta.toFixed(2)}`;
+          datalist.appendChild(opt);
+        });
+      }
+
+      if (!select) return;
+      const q = (searchQuery || '').trim().toUpperCase();
+      select.innerHTML = '';
+
+      const filtered = PRESET_ASSETS
+        .map((item, idx) => ({ item, idx }))
+        .filter(({ item }) => {
+          const matchCat = filterCategory === 'ALL' || item.category === filterCategory;
+          const matchQuery = !q ||
+            item.ticker.toUpperCase().includes(q) ||
+            item.name.toUpperCase().includes(q) ||
+            item.category.toUpperCase().includes(q);
+          return matchCat && matchQuery;
+        });
+
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = `-- 共 ${filtered.length} 檔符合條件之台股 / ETF --`;
+      select.appendChild(placeholder);
+
+      filtered.forEach(({ item, idx }) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `${item.ticker} ${item.name}（${item.category}｜報酬 ${item.ret}% / 波動 ${item.vol}% / β ${item.beta.toFixed(2)}）`;
+        select.appendChild(opt);
+      });
+
+      if (filtered.length === 1) {
+        select.value = String(filtered[0].idx);
+      }
+    }
+
+    function recomputeWeightsFromFixedCapital() {
+      const cap = state.totalCapital;
+      if (cap <= 0) {
+        state.assets.forEach(a => { a.weight = 0; });
+        return;
+      }
+      let runningWeight = 0;
+      const lastNonZeroIdx = state.assets.reduce((lastIdx, a, idx) => ((a.amount || 0) > 0 ? idx : lastIdx), -1);
+      state.assets.forEach((asset, idx) => {
+        const amt = Math.max(0, asset.amount || 0);
+        if (amt === 0) {
+          asset.weight = 0;
+        } else if (idx === lastNonZeroIdx) {
+          asset.weight = Number(Math.max(0, 100 - runningWeight).toFixed(1));
+        } else {
+          const w = Number(((amt / cap) * 100).toFixed(1));
+          asset.weight = w;
+          runningWeight = Number((runningWeight + w).toFixed(1));
+        }
+      });
+    }
+
+    function distributeRemainingWithFixedCapital(changedAssetId, desiredNewAmount) {
+      const cap = Math.max(0, state.totalCapital || 0);
+      const changedAsset = state.assets.find(a => a.id === changedAssetId);
+      if (!changedAsset) return;
+
+      const otherLockedSum = state.assets.reduce((acc, a) => {
+        if (a.id !== changedAssetId && a.locked) {
+          return acc + Math.max(0, a.amount || 0);
+        }
+        return acc;
+      }, 0);
+
+      const maxAllowed = Math.max(0, cap - otherLockedSum);
+      const clampedAmount = Math.min(Math.max(0, Math.round(desiredNewAmount)), Math.round(maxAllowed));
+      changedAsset.amount = clampedAmount;
+
+      const remainingCapital = Math.max(0, Math.round(cap - otherLockedSum - clampedAmount));
+      const adjustableAssets = state.assets.filter(a => a.id !== changedAssetId && !a.locked);
+
+      if (adjustableAssets.length > 0) {
+        const currentAdjustableSum = adjustableAssets.reduce((acc, a) => acc + Math.max(0, a.amount || 0), 0);
+        let allocatedSoFar = 0;
+
+        adjustableAssets.forEach((asset, idx) => {
+          if (idx === adjustableAssets.length - 1) {
+            asset.amount = Math.max(0, remainingCapital - allocatedSoFar);
+          } else {
+            let share = 0;
+            if (currentAdjustableSum > 0) {
+              share = Math.round(remainingCapital * ((asset.amount || 0) / currentAdjustableSum));
+            } else {
+              share = Math.round(remainingCapital / adjustableAssets.length);
+            }
+            share = Math.min(share, Math.max(0, remainingCapital - allocatedSoFar));
+            asset.amount = share;
+            allocatedSoFar += share;
+          }
+        });
+      }
+
+      recomputeWeightsFromFixedCapital();
+    }
+
+    function syncAmountsFromWeights() {
+      state.assets.forEach(asset => {
+        asset.amount = Math.round((asset.weight / 100) * state.totalCapital);
+      });
+    }
+
+    function syncWeightsFromAmounts() {
+      const sumAmount = state.assets.reduce((acc, a) => acc + Math.max(0, a.amount || 0), 0);
+      state.totalCapital = sumAmount;
+      const totalCapInput = document.getElementById('totalCapitalInput');
+      if (totalCapInput && document.activeElement !== totalCapInput) {
+        totalCapInput.value = Math.round(sumAmount);
+      }
+      const sectionCapInput = document.getElementById('sectionTotalCapitalInput');
+      if (sectionCapInput && document.activeElement !== sectionCapInput) {
+        sectionCapInput.value = Math.round(sumAmount);
+      }
+
+      if (sumAmount > 0) {
+        let runningWeight = 0;
+        const lastNonZeroIdx = state.assets.reduce((lastIdx, a, idx) => ((a.amount || 0) > 0 ? idx : lastIdx), -1);
+        state.assets.forEach((asset, idx) => {
+          const amt = Math.max(0, asset.amount || 0);
+          if (amt === 0) {
+            asset.weight = 0;
+          } else if (idx === lastNonZeroIdx) {
+            asset.weight = Number(Math.max(0, 100 - runningWeight).toFixed(1));
+          } else {
+            const w = Number(((amt / sumAmount) * 100).toFixed(1));
+            asset.weight = w;
+            runningWeight = Number((runningWeight + w).toFixed(1));
+          }
+        });
+      } else {
+        state.assets.forEach(asset => {
+          asset.weight = 0;
+        });
+      }
+    }
+
+    function setTotalCapitalAndSync(newCapital) {
+      state.totalCapital = Math.max(0, newCapital || 0);
+      const headerInput = document.getElementById('totalCapitalInput');
+      const sectionInput = document.getElementById('sectionTotalCapitalInput');
+      if (headerInput && document.activeElement !== headerInput) {
+        headerInput.value = Math.round(state.totalCapital);
+      }
+      if (sectionInput && document.activeElement !== sectionInput) {
+        sectionInput.value = Math.round(state.totalCapital);
+      }
+      syncAmountsFromWeights();
+      recalculateLinkedAssetParams();
+      updateMetricsAndCharts(true);
+    }
+
+    // =========================================================================
+    // 5. Portfolio Math, Systematic Risk Decomposition & Monte Carlo Simulation
+    // =========================================================================
+    function computeLinkedParamsForWeights(weightsPct) {
+      const totalCap = Math.max(1, state.totalCapital || 1000000);
+      return state.assets.map((asset, idx) => {
+        const baseRet = typeof asset.baseRet === 'number' ? asset.baseRet : asset.ret;
+        const baseVol = typeof asset.baseVol === 'number' ? asset.baseVol : asset.vol;
+        const baseBeta = typeof asset.baseBeta === 'number' ? asset.baseBeta : asset.beta;
+
+        if (!state.dynamicScaleLinked) {
+          return { ret: baseRet, vol: baseVol, beta: baseBeta };
+        }
+
+        const weightRatio = Math.max(0, (weightsPct[idx] || 0) / 100);
+        const amt = weightRatio * totalCap;
+        const amtInMillions = amt / 1000000;
+        const profile = getTickerScaleProfile(asset);
+
+        const scaleFactor = Math.log1p(amtInMillions * 2.5) - Math.log1p(0.2 * 2.5);
+        const concExcess = Math.max(0, weightRatio - 0.25);
+
+        let linkedRet = baseRet + profile.retDragPerM * scaleFactor - (concExcess * 0.8);
+        if (profile.isDeposit && amt >= 3000000) {
+          linkedRet = Math.max(0.65, linkedRet - 0.35);
+        }
+
+        const linkedVol = Math.max(
+          0.1,
+          baseVol + profile.volAmpPerM * scaleFactor + (concExcess * 4.2 * Math.abs(baseBeta))
+        );
+
+        const linkedBeta = Math.max(
+          -2,
+          Math.min(3, baseBeta + profile.betaShiftPerM * scaleFactor + (concExcess * 0.14 * Math.sign(baseBeta || 1)))
+        );
+
+        return { ret: linkedRet, vol: linkedVol, beta: linkedBeta };
+      });
+    }
+
+    function computePortfolioStats(weightsPct, useDynamicScale = false) {
+      const n = state.assets.length;
+      if (n === 0) {
+        return {
+          expReturn: 0,
+          volatility: 0,
+          sharpe: 0,
+          weightedAvgVol: 0,
+          riskContributions: [],
+          portfolioBeta: 0,
+          sysVol: 0,
+          idioVol: 0,
+          sysVarShare: 0,
+          idioVarShare: 0,
+          undivIdioVol: 0,
+          idioEliminationRate: 0,
+          hhi: 0,
+          effectiveN: 0
+        };
+      }
+
+      const w = weightsPct.map(wp => wp / 100);
+      const effectiveParams = useDynamicScale
+        ? computeLinkedParamsForWeights(weightsPct)
+        : state.assets.map(a => ({
+            ret: a.ret,
+            vol: a.vol,
+            beta: typeof a.beta === 'number' ? a.beta : 1.0
+          }));
+
+      const r = effectiveParams.map(p => p.ret / 100);
+      const s = effectiveParams.map(p => p.vol / 100);
+      const b = effectiveParams.map(p => p.beta);
+      const rf = state.riskFreeRate / 100;
+      const sigmaM = Math.max(0.001, state.marketVolatility / 100);
+
+      let expReturn = 0;
+      let portfolioBeta = 0;
+      let hhi = 0;
+      let undivIdioVarWeighted = 0;
+
+      for (let i = 0; i < n; i++) {
+        expReturn += w[i] * r[i];
+        portfolioBeta += w[i] * b[i];
+        hhi += w[i] * w[i];
+
+        const assetSysVar = Math.pow(b[i] * sigmaM, 2);
+        const assetIdioVar = Math.max(0, Math.pow(s[i], 2) - assetSysVar);
+        undivIdioVarWeighted += w[i] * Math.sqrt(assetIdioVar);
+      }
+
+      let variance = 0;
+      const marginalCov = Array(n).fill(0);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const rho = (state.corrMatrix[i] && typeof state.corrMatrix[i][j] === 'number')
+            ? state.corrMatrix[i][j]
+            : (i === j ? 1.0 : 0.45);
+          const cov = s[i] * s[j] * rho;
+          variance += w[i] * w[j] * cov;
+          marginalCov[i] += w[j] * cov;
+        }
+      }
+
+      const volatility = Math.sqrt(Math.max(0, variance));
+      const sharpe = volatility > 1e-8 ? (expReturn - rf) / volatility : 0;
+
+      let weightedAvgVol = 0;
+      for (let i = 0; i < n; i++) {
+        weightedAvgVol += w[i] * s[i];
+      }
+
+      const riskContributions = Array(n).fill(0);
+      if (volatility > 1e-8) {
+        for (let i = 0; i < n; i++) {
+          const rc = (w[i] * marginalCov[i]) / variance;
+          riskContributions[i] = rc * 100;
+        }
+      }
+
+      // Single-factor market model decomposition
+      const sysVol = Math.abs(portfolioBeta) * sigmaM;
+      const sysVar = Math.min(variance, sysVol * sysVol);
+      const idioVar = Math.max(0, variance - sysVar);
+      const idioVol = Math.sqrt(idioVar);
+
+      const sysVarShare = variance > 1e-10 ? (sysVar / variance) * 100 : 0;
+      const idioVarShare = variance > 1e-10 ? (idioVar / variance) * 100 : 0;
+
+      const idioEliminationRate = undivIdioVarWeighted > 1e-6
+        ? Math.max(0, Math.min(100, ((undivIdioVarWeighted - idioVol) / undivIdioVarWeighted) * 100))
+        : 0;
+
+      const effectiveN = hhi > 1e-6 ? 1 / hhi : 0;
+
+      return {
+        expReturn: expReturn * 100,
+        volatility: volatility * 100,
+        sharpe,
+        weightedAvgVol: weightedAvgVol * 100,
+        riskContributions,
+        portfolioBeta,
+        sysVol: Math.sqrt(sysVar) * 100,
+        idioVol: idioVol * 100,
+        sysVarShare,
+        idioVarShare,
+        undivIdioVol: undivIdioVarWeighted * 100,
+        idioEliminationRate,
+        hhi,
+        effectiveN
+      };
+    }
+
+    function runMonteCarloSimulation(numSimulations = 600) {
+      const n = state.assets.length;
+      if (n === 0) return { points: [], bestSharpePt: null, minVolPt: null };
+
+      const points = [];
+      let bestSharpePt = null;
+      let minVolPt = null;
+
+      for (let k = 0; k < n; k++) {
+        const w = Array(n).fill(0);
+        w[k] = 100;
+        const stats = computePortfolioStats(w, true);
+        const pt = { x: stats.volatility, y: stats.expReturn, sharpe: stats.sharpe, weights: w, stats };
+        points.push(pt);
+        if (!bestSharpePt || pt.sharpe > bestSharpePt.sharpe) bestSharpePt = pt;
+        if (!minVolPt || pt.x < minVolPt.x) minVolPt = pt;
+      }
+
+      for (let sim = 0; sim < numSimulations; sim++) {
+        const raw = Array.from({ length: n }, () => -Math.log(Math.max(1e-7, Math.random())));
+        const sum = raw.reduce((a, b) => a + b, 0);
+        const w = raw.map(v => (v / sum) * 100);
+        const stats = computePortfolioStats(w, true);
+        const pt = { x: stats.volatility, y: stats.expReturn, sharpe: stats.sharpe, weights: w, stats };
+        points.push(pt);
+
+        if (!bestSharpePt || pt.sharpe > bestSharpePt.sharpe) {
+          bestSharpePt = pt;
+        }
+        if (!minVolPt || pt.x < minVolPt.x) {
+          minVolPt = pt;
+        }
+      }
+
+      return { points, bestSharpePt, minVolPt };
+    }
+
+    // =========================================================================
+    // 6. UI Rendering (Dropdown, Table, Matrix, Charts, Toast)
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+
+      const colorMap = {
+        info: 'bg-slate-900 text-white border-slate-700',
+        success: 'bg-teal-700 text-white border-teal-500',
+        warning: 'bg-amber-600 text-white border-amber-400'
+      };
+
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto px-4 py-2.5 rounded-xl shadow-lg border text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 ${colorMap[type] || colorMap.info}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2800);
+    }
+
+    function renderPortfolioTable() {
+      const tbody = document.getElementById('portfolioTableBody');
+      const countBadge = document.getElementById('stockCountBadge');
+      if (!tbody) return;
+
+      if (countBadge) {
+        countBadge.textContent = `${state.assets.length} / 10 檔`;
+      }
+
+      if (state.assets.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="10" class="py-10 text-center text-slate-400 text-sm">
+              目前尚未加入任何標的，請從上方選單加入熱門台股/ETF 或點擊「+ 自訂空白列」。
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = state.assets.map((asset, index) => {
+        const indivSharpe = asset.vol > 0 ? ((asset.ret - state.riskFreeRate) / asset.vol).toFixed(2) : '0.00';
+        const colorDot = CHART_PALETTE[index % CHART_PALETTE.length];
+        const categoryOptions = ASSET_CATEGORIES.map(cat =>
+          `<option value="${cat}" ${asset.category === cat ? 'selected' : ''}>${cat}</option>`
+        ).join('');
+        const betaVal = typeof asset.beta === 'number' ? asset.beta.toFixed(2) : '1.00';
+
+        return `
+          <tr class="hover:bg-slate-50/90 transition-colors">
+            <td class="py-3 pl-4 pr-2 font-semibold text-slate-500 tabular-nums">
+              <div class="flex items-center gap-1.5">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${colorDot};"></span>
+                <span>${index + 1}</span>
+              </div>
+            </td>
+            <td class="py-3 px-2">
+              <div class="flex items-center gap-1.5">
+                <input type="text" data-id="${asset.id}" data-field="ticker" value="${asset.ticker}" placeholder="代號"
+                  class="w-20 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 uppercase focus:outline-none" />
+                <input type="text" data-id="${asset.id}" data-field="name" value="${asset.name}" placeholder="標的名稱"
+                  class="w-28 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none" />
+              </div>
+            </td>
+            <td class="py-3 px-2">
+              <select data-id="${asset.id}" data-field="category"
+                class="bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none">
+                ${categoryOptions}
+              </select>
+            </td>
+            <td class="py-3 px-2 text-right">
+              <div class="inline-flex items-center justify-end gap-1">
+                <input type="number" min="0" step="1000" data-id="${asset.id}" data-field="amount"
+                  value="${Math.round(asset.amount || 0)}"
+                  ${asset.locked ? 'readonly' : ''}
+                  class="w-28 ${asset.locked ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-teal-50/50 border-teal-200/80 text-slate-900'} border focus:bg-white focus:border-teal-500 rounded-lg px-2 py-1 text-xs font-bold tabular-nums text-right focus:outline-none" />
+                <button type="button" data-lock-id="${asset.id}" title="${asset.locked ? '點擊解除鎖定此標的金額' : '鎖定此標的金額（固定總金額調整時不變動）'}"
+                  class="px-1.5 py-1 rounded-lg border text-xs transition ${asset.locked ? 'bg-amber-100 border-amber-300 text-amber-800 font-bold' : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-100'}">
+                  ${asset.locked ? '🔒' : '🔓'}
+                </button>
+              </div>
+            </td>
+            <td class="py-3 px-2">
+              <div class="flex items-center gap-2">
+                <input type="range" min="0" max="100" step="0.5" data-id="${asset.id}" data-field="weightSlider"
+                  value="${Number(asset.weight.toFixed(1))}" ${asset.locked ? 'disabled' : ''} class="w-24 cursor-pointer" />
+                <div class="flex items-center">
+                  <input type="number" min="0" max="100" step="0.1" data-id="${asset.id}" data-field="weight"
+                    value="${Number(asset.weight.toFixed(1))}" ${asset.locked ? 'readonly' : ''}
+                    class="w-16 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-lg px-1.5 py-1 text-xs font-semibold text-slate-800 tabular-nums text-right focus:outline-none" />
+                  <span class="text-xs text-slate-400 ml-1">%</span>
+                </div>
+              </div>
+            </td>
+            <td data-ret-id="${asset.id}" class="py-3 px-2 text-right font-semibold text-xs text-emerald-700 tabular-nums">
+              ${Number(asset.ret).toFixed(2)}%
+            </td>
+            <td data-vol-id="${asset.id}" class="py-3 px-2 text-right font-semibold text-xs text-amber-700 tabular-nums">
+              ${Number(asset.vol).toFixed(2)}%
+            </td>
+            <td data-beta-id="${asset.id}" class="py-3 px-2 text-right font-semibold text-xs text-blue-700 tabular-nums">
+              ${betaVal}
+            </td>
+            <td data-sharpe-id="${asset.id}" class="py-3 px-2 text-right font-semibold text-xs text-slate-700 tabular-nums">
+              ${indivSharpe}
+            </td>
+            <td class="py-3 pl-2 pr-4 text-center">
+              <button type="button" data-remove-id="${asset.id}" title="移除此標的"
+                class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A22 2 0 0116.138 21H7.862a22 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderCorrelationMatrix() {
+      const container = document.getElementById('corrMatrixContainer');
+      if (!container) return;
+
+      const n = state.assets.length;
+      if (n === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400">尚無資產標的</p>';
+        return;
+      }
+
+      let html = '<table class="text-xs border-collapse bg-white rounded-xl overflow-hidden shadow-xs border border-slate-200">';
+      html += '<thead><tr class="bg-slate-100 text-slate-700">';
+      html += '<th class="p-2 border border-slate-200 text-left font-semibold">標的代號</th>';
+      state.assets.forEach(a => {
+        html += `<th class="p-2 border border-slate-200 text-center font-bold min-w-[72px]">${a.ticker || 'N/A'}</th>`;
+      });
+      html += '</tr></thead><tbody>';
+
+      for (let i = 0; i < n; i++) {
+        html += '<tr>';
+        html += `<td class="p-2 border border-slate-200 font-bold bg-slate-50 text-slate-800 whitespace-nowrap">${state.assets[i].ticker} <span class="font-normal text-slate-500">${state.assets[i].name}</span></td>`;
+        for (let j = 0; j < n; j++) {
+          const val = state.corrMatrix[i][j];
+          if (i === j) {
+            html += `<td class="p-2 border border-slate-200 text-center font-bold bg-slate-100 text-slate-500 tabular-nums">1.00</td>`;
+          } else {
+            let bgClass = 'bg-amber-50/70';
+            if (val >= 0.7) bgClass = 'bg-rose-50/90';
+            else if (val < 0.3) bgClass = 'bg-emerald-50/90';
+
+            html += `
+              <td class="p-1 border border-slate-200 text-center ${bgClass}">
+                <input type="number" step="0.05" min="-1" max="1"
+                  data-corr-i="${i}" data-corr-j="${j}" value="${val.toFixed(2)}"
+                  class="w-16 text-center bg-transparent font-semibold text-slate-800 tabular-nums focus:bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 rounded py-0.5" />
+              </td>
+            `;
+          }
+        }
+        html += '</tr>';
+      }
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+
+    function renderCharts(stats, simResult) {
+      const labels = state.assets.map(a => `${a.ticker} ${a.name}`);
+      const weights = state.assets.map(a => Number(a.weight.toFixed(2)));
+      const colors = state.assets.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length]);
+
+      // 0. Systematic vs Idiosyncratic Risk Stacked Bar Chart
+      const sysCtx = document.getElementById('systematicRiskChart');
+      if (sysCtx) {
+        const undivTotalVar = Math.pow(stats.weightedAvgVol, 2);
+        const undivSysVar = Math.pow(stats.sysVol, 2);
+        const undivIdioVar = Math.max(0, undivTotalVar - undivSysVar);
+
+        const actualTotalVar = Math.pow(stats.volatility, 2);
+        const actualSysVar = Math.pow(stats.sysVol, 2);
+        const actualIdioVar = Math.pow(stats.idioVol, 2);
+
+        const bestStats = simResult && simResult.bestSharpePt ? simResult.bestSharpePt.stats : null;
+        const bestSysVar = bestStats ? Math.pow(bestStats.sysVol, 2) : 0;
+        const bestIdioVar = bestStats ? Math.pow(bestStats.idioVol, 2) : 0;
+
+        const barLabels = ['未分散加權單一風險', '目前投資組合風險', '模擬最佳夏普組合'];
+        const sysSeries = [
+          Number(undivSysVar.toFixed(1)),
+          Number(actualSysVar.toFixed(1)),
+          Number(bestSysVar.toFixed(1))
+        ];
+        const idioSeries = [
+          Number(undivIdioVar.toFixed(1)),
+          Number(actualIdioVar.toFixed(1)),
+          Number(bestIdioVar.toFixed(1))
+        ];
+
+        if (state.charts.systematicRisk) {
+          state.charts.systematicRisk.data.datasets[0].data = sysSeries;
+          state.charts.systematicRisk.data.datasets[1].data = idioSeries;
+          state.charts.systematicRisk.update('none');
+        } else {
+          state.charts.systematicRisk = new Chart(sysCtx, {
+            type: 'bar',
+            data: {
+              labels: barLabels,
+              datasets: [
+                {
+                  label: '系統風險變異數 (不可分散)',
+                  data: sysSeries,
+                  backgroundColor: '#2563eb',
+                  borderRadius: 4
+                },
+                {
+                  label: '非系統風險變異數 (可分散)',
+                  data: idioSeries,
+                  backgroundColor: '#f59e0b',
+                  borderRadius: 4
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  stacked: true,
+                  ticks: { font: { size: 11, weight: '600' } },
+                  grid: { display: false }
+                },
+                y: {
+                  stacked: true,
+                  beginAtZero: true,
+                  title: { display: true, text: '年化風險變異數 (%²)', font: { size: 10 } },
+                  ticks: { font: { size: 10 } },
+                  grid: { color: '#e2e8f0' }
+                }
+              },
+              plugins: {
+                legend: { position: 'top', labels: { boxWidth: 11, font: { size: 11 } } },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} %² (約等價波動 ${Math.sqrt(Math.max(0, ctx.parsed.y)).toFixed(2)}%)`
+                  }
+                }
+              }
+            }
+          });
+        }
+      }
+
+      // 1. Allocation Donut Chart
+      const allocCtx = document.getElementById('allocationChart');
+      if (allocCtx) {
+        if (state.charts.allocation) {
+          state.charts.allocation.data.labels = labels;
+          state.charts.allocation.data.datasets[0].data = weights;
+          state.charts.allocation.data.datasets[0].backgroundColor = colors;
+          state.charts.allocation.update('none');
+        } else {
+          state.charts.allocation = new Chart(allocCtx, {
+            type: 'doughnut',
+            data: {
+              labels,
+              datasets: [{
+                data: weights,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: '#ffffff'
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: '62%',
+              plugins: {
+                legend: {
+                  position: 'right',
+                  labels: { boxWidth: 12, font: { size: 11 } }
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => {
+                      const idx = ctx.dataIndex;
+                      const amt = state.assets[idx] ? Math.round(state.assets[idx].amount || 0).toLocaleString() : '0';
+                      return ` ${ctx.label}: ${ctx.parsed}% (${amt} 元)`;
+                    }
+                  }
+                }
+              }
+            }
+          });
+        }
+      }
+
+      // 2. Risk Contribution vs Capital Weight Bar Chart
+      const riskCtx = document.getElementById('riskContributionChart');
+      if (riskCtx) {
+        const riskData = stats.riskContributions.map(v => Number(v.toFixed(2)));
+        if (state.charts.riskContribution) {
+          state.charts.riskContribution.data.labels = state.assets.map(a => a.ticker);
+          state.charts.riskContribution.data.datasets[0].data = weights;
+          state.charts.riskContribution.data.datasets[1].data = riskData;
+          state.charts.riskContribution.update('none');
+        } else {
+          state.charts.riskContribution = new Chart(riskCtx, {
+            type: 'bar',
+            data: {
+              labels: state.assets.map(a => a.ticker),
+              datasets: [
+                {
+                  label: '資金權重 (%)',
+                  data: weights,
+                  backgroundColor: '#0d9488',
+                  borderRadius: 6
+                },
+                {
+                  label: '波動風險貢獻度 (%)',
+                  data: riskData,
+                  backgroundColor: '#f59e0b',
+                  borderRadius: 6
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  ticks: { callback: (v) => v + '%', font: { size: 11 } },
+                  grid: { color: '#f1f5f9' }
+                },
+                x: {
+                  ticks: { font: { size: 11, weight: 'bold' } },
+                  grid: { display: false }
+                }
+              },
+              plugins: {
+                legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } }
+              }
+            }
+          });
+        }
+      }
+
+      // 3. Efficient Frontier Scatter Chart
+      const frontierCtx = document.getElementById('frontierChart');
+      if (frontierCtx && simResult) {
+        const cloudPoints = simResult.points.map(p => ({ x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)), sharpe: p.sharpe }));
+        const currentPt = [{ x: Number(stats.volatility.toFixed(2)), y: Number(stats.expReturn.toFixed(2)), sharpe: stats.sharpe }];
+        const bestPt = simResult.bestSharpePt
+          ? [{ x: Number(simResult.bestSharpePt.x.toFixed(2)), y: Number(simResult.bestSharpePt.y.toFixed(2)), sharpe: simResult.bestSharpePt.sharpe }]
+          : [];
+
+        if (state.charts.frontier) {
+          state.charts.frontier.data.datasets[0].data = currentPt;
+          state.charts.frontier.data.datasets[1].data = bestPt;
+          state.charts.frontier.data.datasets[2].data = cloudPoints;
+          state.charts.frontier.update('none');
+        } else {
+          state.charts.frontier = new Chart(frontierCtx, {
+            type: 'scatter',
+            data: {
+              datasets: [
+                {
+                  label: '目前投資組合',
+                  data: currentPt,
+                  backgroundColor: '#e11d48',
+                  borderColor: '#ffffff',
+                  borderWidth: 2,
+                  pointRadius: 8,
+                  pointHoverRadius: 10,
+                  order: 1
+                },
+                {
+                  label: '模擬最佳夏普組合',
+                  data: bestPt,
+                  backgroundColor: '#0d9488',
+                  borderColor: '#ffffff',
+                  borderWidth: 2,
+                  pointStyle: 'star',
+                  pointRadius: 10,
+                  pointHoverRadius: 12,
+                  order: 2
+                },
+                {
+                  label: '蒙地卡羅隨機配置組合',
+                  data: cloudPoints,
+                  backgroundColor: 'rgba(99, 102, 241, 0.28)',
+                  pointRadius: 3.5,
+                  pointHoverRadius: 5,
+                  order: 3
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  title: { display: true, text: '年化波動率 σp (%)', font: { size: 12, weight: 'bold' } },
+                  ticks: { callback: (v) => v + '%' },
+                  grid: { color: '#f1f5f9' }
+                },
+                y: {
+                  title: { display: true, text: '預期年化報酬率 E(Rp) (%)', font: { size: 12, weight: 'bold' } },
+                  ticks: { callback: (v) => v + '%' },
+                  grid: { color: '#f1f5f9' }
+                }
+              },
+              plugins: {
+                legend: { position: 'top', labels: { usePointStyle: true, font: { size: 11 } } },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => {
+                      const raw = ctx.raw;
+                      const sh = typeof raw.sharpe === 'number' ? raw.sharpe.toFixed(2) : '--';
+                      return `${ctx.dataset.label}: 波動 ${raw.x}% | 報酬 ${raw.y}% | 夏普 ${sh}`;
+                    }
+                  }
+                }
+              }
+            }
+          });
+        }
+      }
+    }
+
+    let lastSimCache = null;
+
+    function updateMetricsAndCharts(rerunMonteCarlo = false) {
+      const tbody = document.getElementById('portfolioTableBody');
+      if (tbody) {
+        state.assets.forEach(asset => {
+          const amtInput = tbody.querySelector(`input[data-id="${asset.id}"][data-field="amount"]`);
+          if (amtInput && document.activeElement !== amtInput) {
+            amtInput.value = Math.round(asset.amount || 0);
+          }
+          const wNumInput = tbody.querySelector(`input[data-id="${asset.id}"][data-field="weight"]`);
+          if (wNumInput && document.activeElement !== wNumInput) {
+            wNumInput.value = Number(asset.weight.toFixed(1));
+          }
+          const wSliderInput = tbody.querySelector(`input[data-id="${asset.id}"][data-field="weightSlider"]`);
+          if (wSliderInput && document.activeElement !== wSliderInput) {
+            wSliderInput.value = Number(asset.weight.toFixed(1));
+          }
+          const retCell = tbody.querySelector(`td[data-ret-id="${asset.id}"]`);
+          if (retCell) {
+            retCell.textContent = `${Number(asset.ret).toFixed(2)}%`;
+          }
+          const volCell = tbody.querySelector(`td[data-vol-id="${asset.id}"]`);
+          if (volCell) {
+            volCell.textContent = `${Number(asset.vol).toFixed(2)}%`;
+          }
+          const betaCell = tbody.querySelector(`td[data-beta-id="${asset.id}"]`);
+          if (betaCell) {
+            betaCell.textContent = (typeof asset.beta === 'number' ? asset.beta : 1.0).toFixed(2);
+          }
+          const sharpeCell = tbody.querySelector(`td[data-sharpe-id="${asset.id}"]`);
+          if (sharpeCell) {
+            sharpeCell.textContent = asset.vol > 0 ? ((asset.ret - state.riskFreeRate) / asset.vol).toFixed(2) : '0.00';
+          }
+        });
+      }
+
+      // Update Weight Status Bar
+      const totalWeight = state.assets.reduce((acc, a) => acc + (a.weight || 0), 0);
+      const statusBar = document.getElementById('weightStatusBar');
+      const statusIcon = document.getElementById('weightStatusIcon');
+      const statusText = document.getElementById('weightStatusText');
+
+      if (statusBar && statusIcon && statusText) {
+        const diff = Math.abs(totalWeight - 100);
+        if (state.assets.length === 0) {
+          statusBar.className = 'px-4 sm:px-5 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs';
+          statusIcon.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+          statusText.className = 'font-medium text-slate-600';
+          statusText.textContent = '尚未加入任何投資標的';
+        } else if (diff <= 0.25) {
+          statusBar.className = 'px-4 sm:px-5 py-2.5 bg-emerald-50 border-b border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs';
+          statusIcon.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+          statusText.className = 'font-medium text-emerald-800';
+          const lockLabel = state.lockTotalCapital ? '🔒 總金額已固定' : '配置完整';
+          statusText.textContent = `目前總配置權重：${totalWeight.toFixed(1)}%（${lockLabel}｜總資金 ${Math.round(state.totalCapital).toLocaleString()} 元）`;
+        } else {
+          statusBar.className = 'px-4 sm:px-5 py-2.5 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs';
+          statusIcon.className = 'w-2.5 h-2.5 rounded-full bg-amber-500';
+          statusText.className = 'font-medium text-amber-800';
+          const diffSign = totalWeight > 100 ? `超出 ${(totalWeight - 100).toFixed(1)}%` : `尚餘 ${(100 - totalWeight).toFixed(1)}% 未分配`;
+          statusText.textContent = `目前總配置權重：${totalWeight.toFixed(1)}%（${diffSign}，建議點擊右側「比例正規化」對齊 100%）`;
+        }
+      }
+
+      // Compute Current Portfolio Metrics
+      const weights = state.assets.map(a => a.weight || 0);
+      const stats = computePortfolioStats(weights);
+
+      // Update KPI Cards
+      const kpiRet = document.getElementById('kpiReturn');
+      const kpiRetTwd = document.getElementById('kpiReturnTwd');
+      const kpiVol = document.getElementById('kpiVolatility');
+      const kpiVolTwd = document.getElementById('kpiVolatilityTwd');
+      const kpiSharpe = document.getElementById('kpiSharpe');
+      const sharpeBadge = document.getElementById('sharpeBadge');
+      const kpiDiv = document.getElementById('kpiDivBenefit');
+      const kpiAvgVol = document.getElementById('kpiWeightedAvgVol');
+
+      if (kpiRet) kpiRet.textContent = `${stats.expReturn.toFixed(2)}%`;
+      if (kpiRetTwd) {
+        const annualProfit = Math.round(state.totalCapital * (stats.expReturn / 100));
+        kpiRetTwd.textContent = `預估年收益：${annualProfit >= 0 ? '+' : ''}${annualProfit.toLocaleString()} 元`;
+      }
+      if (kpiVol) kpiVol.textContent = `${stats.volatility.toFixed(2)}%`;
+      if (kpiVolTwd) {
+        const stdTwd = Math.round(state.totalCapital * (stats.volatility / 100));
+        kpiVolTwd.textContent = `1個標準差波動：± ${stdTwd.toLocaleString()} 元`;
+      }
+      if (kpiSharpe) kpiSharpe.textContent = stats.sharpe.toFixed(2);
+
+      if (sharpeBadge) {
+        if (stats.sharpe >= 1.0) {
+          sharpeBadge.textContent = '優秀 (>1.0)';
+          sharpeBadge.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+        } else if (stats.sharpe >= 0.5) {
+          sharpeBadge.textContent = '良好 (0.5~1.0)';
+          sharpeBadge.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-700';
+        } else if (stats.sharpe >= 0) {
+          sharpeBadge.textContent = '一般 (<0.5)';
+          sharpeBadge.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700';
+        } else {
+          sharpeBadge.textContent = '低於無風險利率';
+          sharpeBadge.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-700';
+        }
+      }
+
+      const divReduction = Math.max(0, stats.weightedAvgVol - stats.volatility);
+      if (kpiDiv) kpiDiv.textContent = `-${divReduction.toFixed(2)}%`;
+      if (kpiAvgVol) kpiAvgVol.textContent = `加權平均單一波動：${stats.weightedAvgVol.toFixed(2)}%`;
+
+      // Update Systematic vs Idiosyncratic Risk Section
+      const sysPortfolioBeta = document.getElementById('sysPortfolioBeta');
+      const sysEffectiveN = document.getElementById('sysEffectiveN');
+      const sysRiskVol = document.getElementById('sysRiskVol');
+      const sysRiskShare = document.getElementById('sysRiskShare');
+      const idioRiskVol = document.getElementById('idioRiskVol');
+      const idioRiskShare = document.getElementById('idioRiskShare');
+      const idioElimRate = document.getElementById('idioEliminationRate');
+      const idioBeforeAfter = document.getElementById('idioBeforeAfterText');
+      const barSysPct = document.getElementById('barSysPct');
+      const barIdioPct = document.getElementById('barIdioPct');
+      const sysBarFill = document.getElementById('sysBarFill');
+      const idioBarFill = document.getElementById('idioBarFill');
+      const hhiDetailText = document.getElementById('hhiDetailText');
+      const diagBox = document.getElementById('diversificationDiagnosisBox');
+      const diagBadge = document.getElementById('diagnosisBadge');
+      const diagText = document.getElementById('diagnosisText');
+
+      if (sysPortfolioBeta) sysPortfolioBeta.textContent = stats.portfolioBeta.toFixed(2);
+      if (sysEffectiveN) sysEffectiveN.textContent = `${stats.effectiveN.toFixed(1)} 檔`;
+      if (sysRiskVol) sysRiskVol.textContent = `${stats.sysVol.toFixed(2)}%`;
+      if (sysRiskShare) sysRiskShare.textContent = `佔總風險變異：${stats.sysVarShare.toFixed(1)}%`;
+      if (idioRiskVol) idioRiskVol.textContent = `${stats.idioVol.toFixed(2)}%`;
+      if (idioRiskShare) idioRiskShare.textContent = `佔總風險變異：${stats.idioVarShare.toFixed(1)}%`;
+      if (idioElimRate) idioElimRate.textContent = `-${stats.idioEliminationRate.toFixed(1)}%`;
+      if (idioBeforeAfter) {
+        idioBeforeAfter.textContent = `分散前 ${stats.undivIdioVol.toFixed(1)}% → 分散後 ${stats.idioVol.toFixed(1)}%`;
+      }
+      if (barSysPct) barSysPct.textContent = `${stats.sysVarShare.toFixed(1)}%`;
+      if (barIdioPct) barIdioPct.textContent = `${stats.idioVarShare.toFixed(1)}%`;
+      if (sysBarFill) sysBarFill.style.width = `${Math.min(100, Math.max(0, stats.sysVarShare))}%`;
+      if (idioBarFill) idioBarFill.style.width = `${Math.min(100, Math.max(0, stats.idioVarShare))}%`;
+      if (hhiDetailText) {
+        hhiDetailText.textContent = `資金集中度 HHI：${stats.hhi.toFixed(3)}（越低代表權重越分散）`;
+      }
+
+      if (diagBox && diagBadge && diagText) {
+        if (stats.effectiveN < 2.0 || stats.idioVarShare > 45) {
+          diagBox.className = 'p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 flex items-start gap-3';
+          diagBadge.className = 'px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-200 text-amber-900';
+          diagBadge.textContent = '非系統風險偏高';
+          diagText.textContent = `目前等效均權僅 ${stats.effectiveN.toFixed(1)} 檔，個股特有風險佔總風險變異達 ${stats.idioVarShare.toFixed(1)}%。建議適度降低單一重倉股比重，或納入跨產業 ETF／債券以進一步消除可分散風險。`;
+        } else if (stats.portfolioBeta > 1.15) {
+          diagBox.className = 'p-3.5 rounded-xl bg-blue-50/80 border border-blue-200 flex items-start gap-3';
+          diagBadge.className = 'px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-200 text-blue-900';
+          diagBadge.textContent = '積極大盤曝險';
+          diagText.textContent = `非系統風險已有效分散（消除率 ${stats.idioEliminationRate.toFixed(1)}%），目前組合風險主要由大盤系統性波動主導（βp = ${stats.portfolioBeta.toFixed(2)}），多頭動能強但大盤回檔時波動較大。`;
+        } else {
+          diagBox.className = 'p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 flex items-start gap-3';
+          diagBadge.className = 'px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-200 text-emerald-900';
+          diagBadge.textContent = '分散結構均衡';
+          diagText.textContent = `等效分散達 ${stats.effectiveN.toFixed(1)} 檔，非系統風險消除率達 ${stats.idioEliminationRate.toFixed(1)}%，組合 Beta 為 ${stats.portfolioBeta.toFixed(2)}，兼顧大盤參與度與下檔防禦韌性。`;
+        }
+      }
+
+      // Run or Reuse Monte Carlo Simulation
+      if (rerunMonteCarlo || !lastSimCache) {
+        lastSimCache = runMonteCarloSimulation(600);
+        if (lastSimCache.bestSharpePt) {
+          state.bestSimWeights = lastSimCache.bestSharpePt.weights;
+          const simBestSharpe = document.getElementById('simBestSharpe');
+          const simBestRetVol = document.getElementById('simBestRetVol');
+          const bestSysCompare = document.getElementById('bestSharpeSysCompare');
+          if (simBestSharpe) simBestSharpe.textContent = lastSimCache.bestSharpePt.sharpe.toFixed(2);
+          if (simBestRetVol) {
+            simBestRetVol.textContent = `${lastSimCache.bestSharpePt.y.toFixed(2)}% / ${lastSimCache.bestSharpePt.x.toFixed(2)}%`;
+          }
+          if (bestSysCompare && lastSimCache.bestSharpePt.stats) {
+            const bs = lastSimCache.bestSharpePt.stats;
+            bestSysCompare.textContent = `最佳夏普組合參考：系統 ${bs.sysVarShare.toFixed(0)}% / 非系統 ${bs.idioVarShare.toFixed(0)}%`;
+          }
+        }
+        if (lastSimCache.minVolPt) {
+          const simMinVol = document.getElementById('simMinVol');
+          if (simMinVol) {
+            simMinVol.textContent = `波動 ${lastSimCache.minVolPt.x.toFixed(2)}% (報酬 ${lastSimCache.minVolPt.y.toFixed(2)}%)`;
+          }
+        }
+      }
+
+      renderCharts(stats, lastSimCache);
+    }
+
+    // =========================================================================
+    // 7. Portfolio CRUD & Event Listeners
+    // =========================================================================
+    function addAsset(template) {
+      if (state.assets.length >= 10) {
+        showToast('最多只能配置 10 檔標的', 'warning');
+        return;
+      }
+      const oldAssets = [...state.assets];
+      const oldMatrix = state.corrMatrix.map(row => [...row]);
+
+      const cat = template.category || '其他資產';
+      const defaultBeta = typeof template.beta === 'number'
+        ? template.beta
+        : (CATEGORY_DEFAULT_BETA[cat] !== undefined ? CATEGORY_DEFAULT_BETA[cat] : 0.85);
+      const defaultRet = typeof template.ret === 'number' ? template.ret : 8.0;
+      const defaultVol = typeof template.vol === 'number' ? template.vol : 15.0;
+
+      const newAsset = {
+        id: nextAssetId++,
+        ticker: template.ticker || 'NEW',
+        name: template.name || '新標的',
+        category: cat,
+        locked: false,
+        weight: 0,
+        amount: 0,
+        baseRet: defaultRet,
+        baseVol: defaultVol,
+        baseBeta: defaultBeta,
+        ret: defaultRet,
+        vol: defaultVol,
+        beta: defaultBeta
+      };
+
+      state.assets.push(newAsset);
+      recalculateLinkedAssetParams();
+      rebuildSmartCorrelationMatrix(true, oldAssets, oldMatrix);
+      renderPortfolioTable();
+      renderCorrelationMatrix();
+      updateMetricsAndCharts(true);
+      showToast(`已加入 ${newAsset.ticker} ${newAsset.name}`, 'success');
+    }
+
+    function removeAsset(id) {
+      if (state.assets.length <= 1) {
+        showToast('投資組合至少需保留 1 檔標的', 'warning');
+        return;
+      }
+      const oldAssets = [...state.assets];
+      const oldMatrix = state.corrMatrix.map(row => [...row]);
+      state.assets = state.assets.filter(a => a.id !== id);
+      recalculateLinkedAssetParams();
+      rebuildSmartCorrelationMatrix(true, oldAssets, oldMatrix);
+      renderPortfolioTable();
+      renderCorrelationMatrix();
+      updateMetricsAndCharts(true);
+    }
+
+    function normalizeWeights() {
+      const sum = state.assets.reduce((acc, a) => acc + (a.weight || 0), 0);
+      if (sum <= 0) {
+        equalizeWeights();
+        return;
+      }
+      let running = 0;
+      state.assets.forEach((a, idx) => {
+        if (idx === state.assets.length - 1) {
+          a.weight = Number(Math.max(0, 100 - running).toFixed(1));
+        } else {
+          a.weight = Number(((a.weight / sum) * 100).toFixed(1));
+          running += a.weight;
+        }
+      });
+      syncAmountsFromWeights();
+      recalculateLinkedAssetParams();
+      renderPortfolioTable();
+      updateMetricsAndCharts(true);
+      showToast('已按原比例正規化至 100.0%', 'success');
+    }
+
+    function equalizeWeights() {
+      const n = state.assets.length;
+      if (n === 0) return;
+      if (state.totalCapital <= 0) {
+        state.totalCapital = 1000000;
+        const totalCapInput = document.getElementById('totalCapitalInput');
+        if (totalCapInput) totalCapInput.value = state.totalCapital;
+        const sectionCapInput = document.getElementById('sectionTotalCapitalInput');
+        if (sectionCapInput) sectionCapInput.value = state.totalCapital;
+      }
+      const base = Number((100 / n).toFixed(1));
+      let runningSum = 0;
+      state.assets.forEach((a, idx) => {
+        if (idx === n - 1) {
+          a.weight = Number((100 - runningSum).toFixed(1));
+        } else {
+          a.weight = base;
+          runningSum += base;
+        }
+      });
+      syncAmountsFromWeights();
+      recalculateLinkedAssetParams();
+      renderPortfolioTable();
+      updateMetricsAndCharts(true);
+      showToast('已將總資金平均分配至所有標的', 'info');
+    }
+
+    function bindEvents() {
+      // Dynamic Scale Linkage Toggle
+      const toggleDynamicBtn = document.getElementById('toggleDynamicScaleBtn');
+      if (toggleDynamicBtn) {
+        toggleDynamicBtn.addEventListener('click', () => {
+          state.dynamicScaleLinked = !state.dynamicScaleLinked;
+          const textEl = document.getElementById('dynamicScaleText');
+          if (state.dynamicScaleLinked) {
+            toggleDynamicBtn.className = 'flex items-center gap-1.5 px-3 py-2 rounded-xl border border-teal-300 bg-teal-50 text-teal-800 text-xs sm:text-sm font-semibold transition shadow-xs whitespace-nowrap';
+            if (textEl) textEl.textContent = '金額規模動態連動：開';
+            showToast('已開啟：個別報酬率、波動率與 Beta 隨配置金額與代號即時連動', 'success');
+          } else {
+            toggleDynamicBtn.className = 'flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-600 text-xs sm:text-sm font-medium transition whitespace-nowrap';
+            if (textEl) textEl.textContent = '金額規模動態連動：關';
+            showToast('已關閉金額規模連動，回復為各標的基準參數', 'info');
+          }
+          recalculateLinkedAssetParams();
+          updateMetricsAndCharts(true);
+        });
+      }
+
+      // Global Total Capital & Rf
+      const toggleTotalLock = () => {
+        state.lockTotalCapital = !state.lockTotalCapital;
+        if (state.lockTotalCapital) {
+          // Ensure totalCapital equals current sum of amounts before locking
+          const currentSum = state.assets.reduce((acc, a) => acc + Math.max(0, a.amount || 0), 0);
+          if (currentSum > 0) {
+            state.totalCapital = Math.round(currentSum);
+            const hIn = document.getElementById('totalCapitalInput');
+            const sIn = document.getElementById('sectionTotalCapitalInput');
+            if (hIn) hIn.value = state.totalCapital;
+            if (sIn) sIn.value = state.totalCapital;
+            recomputeWeightsFromFixedCapital();
+          }
+          showToast(`已固定總投入資金為 ${Math.round(state.totalCapital).toLocaleString()} 元，調整單檔金額時將自動分配剩餘資金`, 'success');
+        } else {
+          showToast('已解除固定總投入資金', 'info');
+        }
+        updateLockTotalUI();
+        updateMetricsAndCharts(false);
+      };
+
+      document.getElementById('lockTotalCapitalBtn').addEventListener('click', toggleTotalLock);
+      document.getElementById('headerLockTotalBtn').addEventListener('click', toggleTotalLock);
+
+      document.getElementById('totalCapitalInput').addEventListener('input', (e) => {
+        setTotalCapitalAndSync(parseFloat(e.target.value));
+      });
+
+      document.getElementById('sectionTotalCapitalInput').addEventListener('input', (e) => {
+        setTotalCapitalAndSync(parseFloat(e.target.value));
+      });
+
+      document.querySelectorAll('[data-quick-cap]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const cap = parseFloat(btn.getAttribute('data-quick-cap')) || 0;
+          setTotalCapitalAndSync(cap);
+          showToast(`總投入資金已設為 ${cap.toLocaleString()} 元`, 'info');
+        });
+      });
+
+      document.getElementById('rfInput').addEventListener('input', (e) => {
+        state.riskFreeRate = parseFloat(e.target.value) || 0;
+        updateMetricsAndCharts(true);
+      });
+
+      document.getElementById('marketVolInput').addEventListener('input', (e) => {
+        state.marketVolatility = Math.max(1, parseFloat(e.target.value) || 16.5);
+        updateMetricsAndCharts(false);
+      });
+
+      // Category Filter & Search Input for Taiwan Stocks / ETFs
+      const catFilterEl = document.getElementById('presetCategoryFilter');
+      const searchInputEl = document.getElementById('presetSearchInput');
+
+      if (catFilterEl) {
+        catFilterEl.addEventListener('change', () => {
+          populatePresetDropdown(catFilterEl.value, searchInputEl ? searchInputEl.value : '');
+        });
+      }
+
+      if (searchInputEl) {
+        searchInputEl.addEventListener('input', () => {
+          const rawVal = searchInputEl.value.trim();
+          const token = rawVal.split(/\s+/)[0].toUpperCase();
+          const exactIdx = PRESET_ASSETS.findIndex(p => p.ticker.toUpperCase() === token || `${p.ticker} ${p.name}`.toUpperCase() === rawVal.toUpperCase());
+          if (exactIdx !== -1) {
+            if (catFilterEl) catFilterEl.value = 'ALL';
+            populatePresetDropdown('ALL', '');
+            const select = document.getElementById('presetSelect');
+            if (select) select.value = String(exactIdx);
+            return;
+          }
+          populatePresetDropdown(catFilterEl ? catFilterEl.value : 'ALL', rawVal);
+        });
+
+        searchInputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('addPresetBtn').click();
+          }
+        });
+      }
+
+      // Add Preset Asset
+      document.getElementById('addPresetBtn').addEventListener('click', () => {
+        const select = document.getElementById('presetSelect');
+        if (select.value === '') {
+          const rawSearch = searchInputEl ? searchInputEl.value.trim() : '';
+          const token = rawSearch.split(/\s+/)[0].toUpperCase();
+          const matched = PRESET_ASSETS.find(p => p.ticker.toUpperCase() === token || p.name === rawSearch);
+          if (matched) {
+            addAsset(matched);
+            if (searchInputEl) searchInputEl.value = '';
+            populatePresetDropdown(catFilterEl ? catFilterEl.value : 'ALL', '');
+            return;
+          }
+          showToast('請先從下拉選單或搜尋框選擇一檔台股或 ETF', 'warning');
+          return;
+        }
+        const preset = PRESET_ASSETS[parseInt(select.value, 10)];
+        if (preset) {
+          addAsset(preset);
+          select.value = '';
+          if (searchInputEl) {
+            searchInputEl.value = '';
+            populatePresetDropdown(catFilterEl ? catFilterEl.value : 'ALL', '');
+          }
+        }
+      });
+
+      // Add Custom Blank Row
+      document.getElementById('addCustomBtn').addEventListener('click', () => {
+        const idx = state.assets.length + 1;
+        addAsset({
+          ticker: `ETF${idx}`,
+          name: `自訂標的 ${idx}`,
+          category: '其他資產',
+          ret: 8.5,
+          vol: 16.0
+        });
+      });
+
+      // Reset Default
+      document.getElementById('resetDefaultBtn').addEventListener('click', () => {
+        state.totalCapital = 1000000;
+        const totalCapInput = document.getElementById('totalCapitalInput');
+        if (totalCapInput) totalCapInput.value = state.totalCapital;
+        const sectionCapInput = document.getElementById('sectionTotalCapitalInput');
+        if (sectionCapInput) sectionCapInput.value = state.totalCapital;
+        loadDefaultPortfolio();
+        renderPortfolioTable();
+        renderCorrelationMatrix();
+        updateMetricsAndCharts(true);
+        showToast('已重設為預設台股投資組合', 'info');
+      });
+
+      // Normalize & Equalize Buttons
+      document.getElementById('normalizeWeightBtn').addEventListener('click', normalizeWeights);
+      document.getElementById('equalWeightBtn').addEventListener('click', equalizeWeights);
+
+      // Portfolio Table Delegated Input Events
+      const tbody = document.getElementById('portfolioTableBody');
+      tbody.addEventListener('input', (e) => {
+        const target = e.target;
+        const id = parseInt(target.getAttribute('data-id'), 10);
+        const field = target.getAttribute('data-field');
+        if (!id || !field) return;
+
+        const asset = state.assets.find(a => a.id === id);
+        if (!asset) return;
+
+        if (field === 'ticker') {
+          const matchedPreset = applyTickerLookup(asset, target.value);
+          recalculateLinkedAssetParams();
+          if (matchedPreset) {
+            const nameIn = tbody.querySelector(`input[data-id="${id}"][data-field="name"]`);
+            const catSel = tbody.querySelector(`select[data-id="${id}"][data-field="category"]`);
+            if (nameIn) nameIn.value = asset.name;
+            if (catSel) catSel.value = asset.category;
+            rebuildSmartCorrelationMatrix(false);
+            showToast(`已依代號 ${asset.ticker} 自動帶入 ${asset.name} 參數並連動金額規模`, 'success');
+          }
+          renderCorrelationMatrix();
+          updateMetricsAndCharts(true);
+        } else if (field === 'name') {
+          asset.name = target.value;
+          renderCorrelationMatrix();
+          updateMetricsAndCharts(false);
+        } else if (field === 'amount') {
+          const val = Math.max(0, parseFloat(target.value) || 0);
+          if (state.lockTotalCapital) {
+            distributeRemainingWithFixedCapital(id, val);
+            if (Math.round(val) !== Math.round(asset.amount)) {
+              target.value = Math.round(asset.amount);
+            }
+          } else {
+            asset.amount = val;
+            syncWeightsFromAmounts();
+          }
+          recalculateLinkedAssetParams();
+          state.assets.forEach(a => {
+            const amtIn = tbody.querySelector(`input[data-id="${a.id}"][data-field="amount"]`);
+            const wNum = tbody.querySelector(`input[data-id="${a.id}"][data-field="weight"]`);
+            const wSlider = tbody.querySelector(`input[data-id="${a.id}"][data-field="weightSlider"]`);
+            if (amtIn && document.activeElement !== amtIn) amtIn.value = Math.round(a.amount || 0);
+            if (wNum) wNum.value = Number(a.weight.toFixed(1));
+            if (wSlider) wSlider.value = Number(a.weight.toFixed(1));
+          });
+          updateMetricsAndCharts(true);
+        } else if (field === 'weightSlider') {
+          const val = parseFloat(target.value) || 0;
+          if (state.lockTotalCapital) {
+            const targetAmt = Math.round((val / 100) * state.totalCapital);
+            distributeRemainingWithFixedCapital(id, targetAmt);
+          } else {
+            asset.weight = val;
+            asset.amount = Math.round((val / 100) * state.totalCapital);
+            const numInput = tbody.querySelector(`input[data-id="${id}"][data-field="weight"]`);
+            if (numInput) numInput.value = val;
+          }
+          recalculateLinkedAssetParams();
+          updateMetricsAndCharts(true);
+        } else if (field === 'weight') {
+          const val = Math.max(0, Math.min(100, parseFloat(target.value) || 0));
+          if (state.lockTotalCapital) {
+            const targetAmt = Math.round((val / 100) * state.totalCapital);
+            distributeRemainingWithFixedCapital(id, targetAmt);
+          } else {
+            asset.weight = val;
+            asset.amount = Math.round((val / 100) * state.totalCapital);
+            const sliderInput = tbody.querySelector(`input[data-id="${id}"][data-field="weightSlider"]`);
+            if (sliderInput) sliderInput.value = val;
+          }
+          recalculateLinkedAssetParams();
+          updateMetricsAndCharts(true);
+        }
+      });
+
+      tbody.addEventListener('change', (e) => {
+        const target = e.target;
+        const id = parseInt(target.getAttribute('data-id'), 10);
+        const field = target.getAttribute('data-field');
+        if (id && field === 'category') {
+          const asset = state.assets.find(a => a.id === id);
+          if (asset) {
+            asset.category = target.value;
+            const defaultBeta = CATEGORY_DEFAULT_BETA[asset.category] !== undefined ? CATEGORY_DEFAULT_BETA[asset.category] : 0.85;
+            asset.baseBeta = defaultBeta;
+            asset.beta = defaultBeta;
+            recalculateLinkedAssetParams();
+            rebuildSmartCorrelationMatrix(false);
+            renderCorrelationMatrix();
+            updateMetricsAndCharts(true);
+          }
+        }
+      });
+
+      tbody.addEventListener('click', (e) => {
+        const lockBtn = e.target.closest('[data-lock-id]');
+        if (lockBtn) {
+          const id = parseInt(lockBtn.getAttribute('data-lock-id'), 10);
+          const asset = state.assets.find(a => a.id === id);
+          if (asset) {
+            asset.locked = !asset.locked;
+            renderPortfolioTable();
+            updateMetricsAndCharts(false);
+            showToast(
+              asset.locked
+                ? `已鎖定 ${asset.ticker} 配置金額（${Math.round(asset.amount).toLocaleString()} 元）`
+                : `已解除鎖定 ${asset.ticker}`,
+              'info'
+            );
+          }
+          return;
+        }
+        const btn = e.target.closest('[data-remove-id]');
+        if (btn) {
+          const id = parseInt(btn.getAttribute('data-remove-id'), 10);
+          removeAsset(id);
+        }
+      });
+
+      // Correlation Matrix Controls
+      const globalCorrSlider = document.getElementById('globalCorrSlider');
+      const globalCorrValue = document.getElementById('globalCorrValue');
+
+      globalCorrSlider.addEventListener('input', () => {
+        globalCorrValue.textContent = Number(globalCorrSlider.value).toFixed(2);
+      });
+
+      document.getElementById('applyGlobalCorrBtn').addEventListener('click', () => {
+        const val = parseFloat(globalCorrSlider.value);
+        const n = state.assets.length;
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) {
+            state.corrMatrix[i][j] = i === j ? 1.0 : val;
+          }
+        }
+        renderCorrelationMatrix();
+        updateMetricsAndCharts(true);
+        showToast(`已將所有資產兩兩相關係數設為 ${val.toFixed(2)}`, 'info');
+      });
+
+      document.getElementById('autoSmartCorrBtn').addEventListener('click', () => {
+        rebuildSmartCorrelationMatrix(false);
+        renderCorrelationMatrix();
+        updateMetricsAndCharts(true);
+        showToast('已依資產類別智慧估算相關係數矩陣', 'success');
+      });
+
+      document.getElementById('toggleCorrMatrixBtn').addEventListener('click', () => {
+        const wrapper = document.getElementById('corrMatrixWrapper');
+        const text = document.getElementById('toggleCorrText');
+        const icon = document.getElementById('toggleCorrIcon');
+        const isHidden = wrapper.classList.contains('hidden');
+        if (isHidden) {
+          wrapper.classList.remove('hidden');
+          text.textContent = '收合矩陣微調';
+          icon.classList.add('rotate-180');
+        } else {
+          wrapper.classList.add('hidden');
+          text.textContent = '展開矩陣微調';
+          icon.classList.remove('rotate-180');
+        }
+      });
+
+      // Pairwise Correlation Matrix Cell Edits (Symmetric Sync)
+      document.getElementById('corrMatrixContainer').addEventListener('input', (e) => {
+        const target = e.target;
+        const i = parseInt(target.getAttribute('data-corr-i'), 10);
+        const j = parseInt(target.getAttribute('data-corr-j'), 10);
+        if (isNaN(i) || isNaN(j)) return;
+
+        let val = parseFloat(target.value);
+        if (isNaN(val)) return;
+        val = Math.max(-1, Math.min(1, val));
+
+        state.corrMatrix[i][j] = val;
+        state.corrMatrix[j][i] = val;
+
+        // Sync symmetric input box
+        const symInput = document.querySelector(`input[data-corr-i="${j}"][data-corr-j="${i}"]`);
+        if (symInput) {
+          symInput.value = val.toFixed(2);
+        }
+
+        updateMetricsAndCharts(true);
+      });
+
+      // Simulation Buttons
+      document.getElementById('rerunSimBtn').addEventListener('click', () => {
+        updateMetricsAndCharts(true);
+        showToast('已完成 600 組蒙地卡羅權重重新模擬', 'info');
+      });
+
+      document.getElementById('applyMaxSharpeBtn').addEventListener('click', () => {
+        if (!state.bestSimWeights || state.bestSimWeights.length !== state.assets.length) {
+          showToast('尚無可用的模擬最佳配置', 'warning');
+          return;
+        }
+
+        // 確保有有效的總投入資金以完整連動金額與規模參數
+        if (state.totalCapital <= 0) {
+          state.totalCapital = 1000000;
+          const hIn = document.getElementById('totalCapitalInput');
+          const sIn = document.getElementById('sectionTotalCapitalInput');
+          if (hIn) hIn.value = state.totalCapital;
+          if (sIn) sIn.value = state.totalCapital;
+        }
+
+        // 檢查是否有單檔鎖定金額，若有則解除鎖定以確保能完整套用最佳夏普配置
+        const hadLockedRows = state.assets.some(a => a.locked);
+        if (hadLockedRows) {
+          state.assets.forEach(a => { a.locked = false; });
+        }
+
+        const n = state.assets.length;
+        let runningSum = 0;
+        state.assets.forEach((asset, idx) => {
+          if (idx === n - 1) {
+            asset.weight = Number(Math.max(0, 100 - runningSum).toFixed(1));
+          } else {
+            const w = Number(state.bestSimWeights[idx].toFixed(1));
+            asset.weight = w;
+            runningSum = Number((runningSum + w).toFixed(1));
+          }
+        });
+
+        // 同步更新各標的金額、個別動態報酬/波動/Beta、系統性風險指標與所有視覺化圖表
+        syncAmountsFromWeights();
+        recalculateLinkedAssetParams();
+        renderPortfolioTable();
+        updateMetricsAndCharts(false);
+
+        const extraNote = hadLockedRows ? '（已自動解除單檔鎖定以對齊最佳比例）' : '';
+        showToast(`已套用最佳夏普權重，整體投資組合金額與風險參數已同步連動更新${extraNote}！`, 'success');
+      });
+    }
+
+    // =========================================================================
+    // 8. Bootstrap Application
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      populatePresetDropdown();
+      loadDefaultPortfolio();
+      renderPortfolioTable();
+      renderCorrelationMatrix();
+      bindEvents();
+      updateMetricsAndCharts(true);
+    });
+  </script>
+</body>
+</html>
